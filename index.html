@@ -120,6 +120,8 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
 let isListening = false;
 let recognition = null;
 let mode = 'ayah';
+let translateTimer = null;
+let lastSent = '';
 
 const micBtn = document.getElementById('micBtn');
 const statusEl = document.getElementById('status');
@@ -139,7 +141,7 @@ function saveKey() {
   if (!v.startsWith('sk-ant-')) { dbg('Key must start with sk-ant-', 'err'); return; }
   localStorage.setItem('prayer_key', v);
   document.getElementById('setup').classList.add('hidden');
-  dbg('Key saved. Ready.', '');
+  dbg('');
 }
 
 function changeKey() {
@@ -161,13 +163,14 @@ function clearDisplay() {
   mainText.innerHTML = '<div class="placeholder">Tap mic and hold near the imam.</div>';
   surahBadge.style.display = 'none';
   duaLabel.textContent = '';
-  heardBox.textContent = 'Listening for Arabic...';
+  heardBox.textContent = '';
+  lastSent = '';
   dbg('');
 }
 
 function show(text, label, surah, ayah) {
   mainText.style.opacity = '0';
-  setTimeout(() => { mainText.textContent = text; mainText.style.opacity = '1'; }, 150);
+  setTimeout(() => { mainText.textContent = text; mainText.style.opacity = '1'; }, 100);
   if (surah && surah !== 'Unknown' && surah !== '') {
     surahBadge.textContent = surah; surahBadge.style.display = 'inline-block';
     duaLabel.textContent = ayah ? 'Ayah ' + ayah : '';
@@ -179,14 +182,17 @@ function show(text, label, surah, ayah) {
 
 async function translate(arabic) {
   if (!arabic || arabic.trim().length < 2) return;
+  if (arabic === lastSent) return;
+  lastSent = arabic;
   const key = localStorage.getItem('prayer_key');
-  if (!key) { dbg('No API key saved', 'err'); return; }
+  if (!key) return;
   const lang = document.getElementById('langSelect').value;
-  dbg('Translating...');
 
   const prompt = mode === 'dua'
-    ? `You are an expert Islamic scholar specializing in Witr prayer and Qunoot supplications. You know all four madhabs, all regional imam styles (Arab, Pakistani, Indian, Turkish, African, Southeast Asian), and all common qunoot duas. The text below was captured by speech recognition and may have minor errors — correct them. Translate completely and naturally. Arabic: "${arabic}"\nRespond ONLY raw JSON no markdown: {"arabic":"<corrected>","translation":"<complete natural ${lang} translation>","label":"<Praise or Qunoot or Dua>"}`
-    : `Quran translator. Arabic heard from imam: "${arabic}"\nRespond ONLY raw JSON no markdown: {"arabic":"<corrected>","translation":"<${lang} translation>","surah":"<surah name or empty>","ayah":"<number or empty>"}`;
+    ? `Expert Islamic scholar. Translate this single Witr/Qunoot Arabic phrase. Know all madhabs and regional styles. Correct speech recognition errors. Keep translation short and natural. Arabic: "${arabic}"
+Respond ONLY raw JSON: {"arabic":"<corrected>","translation":"<short natural ${lang} translation>","label":"<Praise or Dua>"}`
+    : `Quran translator. Arabic: "${arabic}"
+Respond ONLY raw JSON: {"arabic":"<corrected>","translation":"<${lang}>","surah":"<name or empty>","ayah":"<number or empty>"}`;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -199,34 +205,31 @@ async function translate(arabic) {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 300,
+        max_tokens: 150,
         messages: [{ role: 'user', content: prompt }]
       })
     });
-
-    if (!res.ok) {
-      const e = await res.json().catch(() => ({}));
-      dbg('API error: ' + (e.error?.message || res.status), 'err');
-      if (res.status === 401) changeKey();
-      return;
-    }
-
+    if (!res.ok) { const e = await res.json().catch(()=>({})); dbg('Error: '+(e.error?.message||res.status),'err'); return; }
     const data = await res.json();
-    const raw = data.content.map(i => i.text || '').join('');
-    const result = JSON.parse(raw.replace(/```json|```/g, '').trim());
+    const raw = data.content.map(i=>i.text||'').join('');
+    const result = JSON.parse(raw.replace(/```json|```/g,'').trim());
     if (result.translation) {
       show(result.translation, result.label, result.surah, result.ayah);
       heardBox.textContent = result.arabic || arabic;
       dbg('');
     }
-  } catch(e) {
-    dbg('Error: ' + e.message, 'err');
-  }
+  } catch(e) { dbg('Error: '+e.message,'err'); }
+}
+
+function fireTranslation(text) {
+  if (!text || text.trim().length < 2) return;
+  clearTimeout(translateTimer);
+  translateTimer = setTimeout(() => translate(text.trim()), 0);
 }
 
 function startRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { dbg('Use Chrome browser', 'err'); return; }
+  if (!SR) { dbg('Use Chrome browser','err'); return; }
 
   recognition = new SR();
   recognition.lang = 'ar-SA';
@@ -234,36 +237,48 @@ function startRecognition() {
   recognition.interimResults = true;
   recognition.maxAlternatives = 1;
 
+  let interimBuffer = '';
+  let interimTimer = null;
+
   recognition.onresult = (event) => {
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const t = event.results[i][0].transcript.trim();
       if (event.results[i].isFinal) {
-        if (t.length > 1) { heardBox.textContent = t; translate(t); }
-      } else {
+        clearTimeout(interimTimer);
+        interimBuffer = '';
+        lastSent = '';
         heardBox.textContent = t;
+        if (t.length > 1) fireTranslation(t);
+      } else {
+        interimBuffer = t;
+        heardBox.textContent = t;
+        clearTimeout(interimTimer);
+        interimTimer = setTimeout(() => {
+          if (interimBuffer.length > 3) {
+            fireTranslation(interimBuffer);
+          }
+        }, 800);
       }
     }
   };
 
   recognition.onerror = (e) => {
     if (e.error === 'no-speech') return;
-    if (e.error === 'not-allowed') { dbg('Mic blocked — allow in Chrome settings', 'err'); isListening = false; micBtn.className = 'mic-btn'; statusEl.className = 'status'; statusEl.textContent = 'Tap microphone to begin'; }
+    if (e.error === 'not-allowed') { dbg('Mic blocked','err'); isListening = false; micBtn.className='mic-btn'; statusEl.className='status'; statusEl.textContent='Tap microphone to begin'; }
   };
 
   recognition.onend = () => {
-    if (isListening) {
-      setTimeout(() => {
-        try { recognition.start(); } catch(e) {}
-      }, 100);
-    }
+    if (isListening) setTimeout(() => { try { recognition.start(); } catch(e) {} }, 100);
   };
-  try { recognition.start(); } catch(e) { dbg('Mic error: ' + e.message, 'err'); }
+
+  try { recognition.start(); } catch(e) { dbg('Mic error: '+e.message,'err'); }
 }
 
 function toggleListening() {
-  if (!localStorage.getItem('prayer_key')) { dbg('Enter API key first', 'err'); return; }
+  if (!localStorage.getItem('prayer_key')) { dbg('Enter API key first','err'); return; }
   if (!isListening) {
     isListening = true;
+    lastSent = '';
     micBtn.className = 'mic-btn listening';
     statusEl.className = 'status listening';
     statusEl.textContent = 'Listening...';
@@ -271,6 +286,7 @@ function toggleListening() {
     startRecognition();
   } else {
     isListening = false;
+    clearTimeout(translateTimer);
     if (recognition) { recognition.onend = null; recognition.stop(); recognition = null; }
     micBtn.className = 'mic-btn';
     statusEl.className = 'status';
