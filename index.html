@@ -48,13 +48,11 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
 </style>
 </head>
 <body>
-
 <div class="header">
   <span class="arabic-title">مترجم الصلاة</span>
   <div class="divider"></div>
   <span class="english-title">Live Prayer Translator</span>
 </div>
-
 <div class="setup" id="setup">
   <label>Enter your Anthropic API key</label>
   <div class="setup-row">
@@ -63,7 +61,6 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
   </div>
   <div class="setup-note">Get your key at console.anthropic.com → API Keys. Your key is saved in this browser only.</div>
 </div>
-
 <div class="mode-row">
   <button class="mode-btn active" id="modeAyah" onclick="setMode('ayah')">
     <span class="mode-title">Ayah mode</span>
@@ -74,7 +71,6 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
     <span class="mode-desc">Qunoot & duas</span>
   </button>
 </div>
-
 <div class="mic-section">
   <button class="mic-btn" id="micBtn" onclick="toggleListening()">
     <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
@@ -86,9 +82,7 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
   </button>
   <div class="status" id="status">Tap microphone to begin</div>
 </div>
-
 <div class="heard-box" id="heardBox">Listening for Arabic...</div>
-
 <div class="card">
   <div class="badge-row">
     <span class="surah-badge" id="surahBadge" style="display:none"></span>
@@ -96,7 +90,6 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
   </div>
   <div id="mainText"><div class="placeholder">Tap mic and hold near the imam.</div></div>
 </div>
-
 <div class="bottom-row">
   <div class="left-btns">
     <button class="text-btn" onclick="changeKey()">Change key</button>
@@ -112,10 +105,8 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
     <option value="Bengali">Bengali</option>
   </select>
 </div>
-
 <div class="debug" id="debug"></div>
 <div class="disclaimer">AI translation for understanding only. Verify with a qualified scholar.</div>
-
 <script>
 let isListening = false;
 let recognition = null;
@@ -189,10 +180,8 @@ async function translate(arabic) {
   const lang = document.getElementById('langSelect').value;
 
   const prompt = mode === 'dua'
-    ? `Expert Islamic scholar. Translate this single Witr/Qunoot Arabic phrase. Know all madhabs and regional styles. Correct speech recognition errors. Keep translation short and natural. Arabic: "${arabic}"
-Respond ONLY raw JSON: {"arabic":"<corrected>","translation":"<short natural ${lang} translation>","label":"<Praise or Dua>"}`
-    : `Quran translator. Arabic: "${arabic}"
-Respond ONLY raw JSON: {"arabic":"<corrected>","translation":"<${lang}>","surah":"<name or empty>","ayah":"<number or empty>"}`;
+    ? `Expert Islamic scholar. Translate this single Witr/Qunoot Arabic phrase. Know all madhabs and regional styles. Correct speech recognition errors. Keep translation short and natural. Arabic: "${arabic}"\nRespond ONLY raw JSON: {"arabic":"<corrected>","translation":"<short natural ${lang} translation>","label":"<Praise or Dua>"}`
+    : `Quran translator. Arabic: "${arabic}"\nRespond ONLY raw JSON: {"arabic":"<corrected>","translation":"<${lang}>","surah":"<name or empty>","ayah":"<number or empty>"}`;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -205,18 +194,24 @@ Respond ONLY raw JSON: {"arabic":"<corrected>","translation":"<${lang}>","surah"
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 150,
+        max_tokens: 400,
         messages: [{ role: 'user', content: prompt }]
       })
     });
     if (!res.ok) { const e = await res.json().catch(()=>({})); dbg('Error: '+(e.error?.message||res.status),'err'); return; }
     const data = await res.json();
     const raw = data.content.map(i=>i.text||'').join('');
-    const result = JSON.parse(raw.replace(/```json|```/g,'').trim());
-    if (result.translation) {
-      show(result.translation, result.label, result.surah, result.ayah);
-      heardBox.textContent = result.arabic || arabic;
-      dbg('');
+    try {
+      const result = JSON.parse(raw.replace(/```json|```/g,'').trim());
+      if (result.translation) {
+        show(result.translation, result.label, result.surah, result.ayah);
+        heardBox.textContent = result.arabic || arabic;
+        dbg('');
+      }
+    } catch(parseErr) {
+      const match = raw.match(/"translation"\s*:\s*"([^"]{3,})"/);
+      if (match) { show(match[1], mode === 'dua' ? 'Witr Dua' : '', '', ''); dbg(''); }
+      else { dbg('Parse error — retrying', 'err'); lastSent = ''; }
     }
   } catch(e) { dbg('Error: '+e.message,'err'); }
 }
@@ -254,9 +249,7 @@ function startRecognition() {
         heardBox.textContent = t;
         clearTimeout(interimTimer);
         interimTimer = setTimeout(() => {
-          if (interimBuffer.length > 3) {
-            fireTranslation(interimBuffer);
-          }
+          if (interimBuffer.length > 3) fireTranslation(interimBuffer);
         }, 800);
       }
     }
