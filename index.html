@@ -225,16 +225,13 @@ function fireTranslation(text) {
 function startRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { dbg('Use Chrome browser','err'); return; }
-
   recognition = new SR();
   recognition.lang = 'ar-SA';
   recognition.continuous = true;
   recognition.interimResults = true;
   recognition.maxAlternatives = 1;
-
   let interimBuffer = '';
   let interimTimer = null;
-
   recognition.onresult = (event) => {
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const t = event.results[i][0].transcript.trim();
@@ -250,20 +247,17 @@ function startRecognition() {
         clearTimeout(interimTimer);
         interimTimer = setTimeout(() => {
           if (interimBuffer.length > 3) fireTranslation(interimBuffer);
-        }, 800);
+        }, 500);
       }
     }
   };
-
   recognition.onerror = (e) => {
     if (e.error === 'no-speech') return;
     if (e.error === 'not-allowed') { dbg('Mic blocked','err'); isListening = false; micBtn.className='mic-btn'; statusEl.className='status'; statusEl.textContent='Tap microphone to begin'; }
   };
-
   recognition.onend = () => {
     if (isListening) setTimeout(() => { try { recognition.start(); } catch(e) {} }, 100);
   };
-
   try { recognition.start(); } catch(e) { dbg('Mic error: '+e.message,'err'); }
 }
 
