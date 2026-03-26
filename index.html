@@ -206,16 +206,22 @@ async function splitAndTranslate(arabic) {
   const lang = document.getElementById('langSelect').value;
 
   const prompt = mode === 'dua'
-    ? `You are an expert Islamic scholar specializing in Witr prayer and Qunoot duas. You know all madhabs and all regional imam styles (Arab, Pakistani, Indian, Turkish, African, Southeast Asian).
+    ? `You are an expert Islamic scholar and translator specializing in Witr prayer and Qunoot duas. You know all four madhabs, all regional imam styles (Arab, Pakistani, Indian, Turkish, African, Southeast Asian), and all common qunoot phrases.
 
 The following Arabic was heard from an imam during Witr prayer. It may contain multiple separate phrases, duas, or praises said one after another.
 
-Split into individual phrases (each one the imam says as a separate unit between breaths), correct speech recognition errors, and translate each one.
+YOUR RULES:
+1. Split into individual phrases — one per breath the imam takes
+2. Correct any speech recognition errors using your knowledge of common duas
+3. Translate each phrase into natural, clear ${lang} that a non-Arabic speaker can immediately understand
+4. Choose ONE definitive translation — never use slashes like give/giving or forgive/pardon. Pick the single most natural word for the context
+5. Use present tense for supplications: "O Allah, guide us" not "O Allah, giving guidance to us"
+6. Keep it concise — the person is reading during prayer, not studying
 
 Arabic heard: "${arabic}"
 
 Respond ONLY with a raw JSON array, no markdown:
-[{"arabic":"<phrase corrected>","translation":"<${lang} translation>","label":"<Praise or Dua or Qunoot>"}]`
+[{"arabic":"<phrase corrected>","translation":"<clean decisive ${lang} translation>","label":"<Praise or Dua or Qunoot>"}]`
     : `Quran translator. Arabic: "${arabic}"
 Respond ONLY raw JSON array no markdown:
 [{"arabic":"<corrected>","translation":"<${lang}>","surah":"<name or empty>","ayah":"<number or empty>"}]`;
@@ -230,7 +236,7 @@ Respond ONLY raw JSON array no markdown:
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-sonnet-4-20250514',
         max_tokens: 600,
         messages: [{ role: 'user', content: prompt }]
       })
