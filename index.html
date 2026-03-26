@@ -120,7 +120,6 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
 let isListening = false;
 let recognition = null;
 let mode = 'ayah';
-let isTranslating = false;
 let phraseQueue = [];
 let processingQueue = false;
 
@@ -174,7 +173,7 @@ function clearDisplay() {
   dbg('');
 }
 
-function show(text, label, surah, ayah) {
+function show(text, label) {
   mainText.style.opacity = '0';
   setTimeout(() => {
     mainText.textContent = text;
@@ -190,46 +189,32 @@ function show(text, label, surah, ayah) {
       mainText.style.borderRadius = '0';
     }, 1800);
   }, 80);
-  if (surah && surah !== 'Unknown' && surah !== '') {
-    surahBadge.textContent = surah;
-    surahBadge.style.display = 'inline-block';
-    duaLabel.textContent = ayah ? 'Ayah ' + ayah : '';
-  } else {
-    surahBadge.style.display = 'none';
-    duaLabel.textContent = label || (mode === 'dua' ? 'Witr Dua' : '');
-  }
+  surahBadge.style.display = 'none';
+  duaLabel.textContent = label || '';
 }
 
-function splitIntoPhrases(text) {
-  // Split on Arabic phrase boundaries:
-  // - Arabic comma ، or regular comma
-  // - Common connective words that start a new dua: وَ (wa) at start of phrase, ثم (thumma)
-  // - Split on "و" when it appears between two substantial chunks
-  let phrases = text
-    .split(/[،,]/)
-    .map(p => p.trim())
-    .filter(p => p.length > 2);
-
-  // If no commas found, try splitting on Arabic "و" connective between phrases
-  if (phrases.length === 1) {
-    const parts = text.split(/\s+و\s+/).map(p => p.trim()).filter(p => p.length > 2);
-    if (parts.length > 1) return parts;
-  }
-
-  return phrases.length > 0 ? phrases : [text];
-}
-
-async function translatePhrase(arabic) {
-  if (!arabic || arabic.trim().length < 2) return;
+async function splitAndTranslate(arabic) {
   const key = localStorage.getItem('prayer_key');
   if (!key) return;
   const lang = document.getElementById('langSelect').value;
 
   const prompt = mode === 'dua'
-    ? `Expert Islamic scholar specializing in Witr prayer and Qunoot duas. Know all four madhabs, all regional imam styles (Arab, Pakistani, Indian, Turkish, African, Southeast Asian). This is ONE complete phrase/praise from the Witr dua — translate it completely and naturally. Correct any speech recognition errors. Arabic: "${arabic}"
-Respond ONLY raw JSON no markdown: {"arabic":"<corrected>","translation":"<complete natural ${lang} translation>","label":"<one word: Praise or Qunoot or Dua or Supplication>"}`
-    : `Quran translator. One complete phrase from imam: "${arabic}"
-Respond ONLY raw JSON no markdown: {"arabic":"<corrected>","translation":"<${lang} translation>","surah":"<surah name or empty>","ayah":"<number or empty>"}`;
+    ? `You are an expert Islamic scholar specializing in Witr prayer and Qunoot duas. You know all madhabs and all regional imam styles.
+
+The following Arabic text was heard from an imam during Witr prayer. It may contain multiple separate phrases, duas, or praises said one after another. 
+
+YOUR JOB: Split this into individual phrases (each one that the imam would say as a separate unit with a breath between), then translate each one.
+
+Arabic heard: "${arabic}"
+
+Respond ONLY with a raw JSON array, no markdown, no backticks:
+[
+  {"arabic": "<first phrase corrected>", "translation": "<${lang} translation>", "label": "<Praise or Dua or Qunoot>"},
+  {"arabic": "<second phrase corrected>", "translation": "<${lang} translation>", "label": "<Praise or Dua or Qunoot>"}
+]`
+    : `Quran translator. Arabic: "${arabic}"
+Respond ONLY raw JSON array no markdown:
+[{"arabic":"<corrected>","translation":"<${lang}>","surah":"<name or empty>","ayah":"<number or empty>"}]`;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -242,48 +227,44 @@ Respond ONLY raw JSON no markdown: {"arabic":"<corrected>","translation":"<${lan
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 300,
+        max_tokens: 600,
         messages: [{ role: 'user', content: prompt }]
       })
     });
-    if (!res.ok) { const e = await res.json().catch(()=>({})); dbg('Error: '+(e.error?.message||res.status),'err'); return; }
+    if (!res.ok) { const e = await res.json().catch(()=>({})); dbg('Error: '+(e.error?.message||res.status),'err'); return []; }
     const data = await res.json();
     const raw = data.content.map(i=>i.text||'').join('');
     try {
       const result = JSON.parse(raw.replace(/```json|```/g,'').trim());
-      if (result.translation) {
-        heardBox.textContent = result.arabic || arabic;
-        show(result.translation, result.label, result.surah, result.ayah);
-        dbg('');
-      }
+      return Array.isArray(result) ? result : [result];
     } catch(e) {
-      const m = raw.match(/"translation":"([^"]+)"/);
-      if (m) { show(m[1], '', '', ''); dbg(''); }
-      else { dbg('Parse error', 'err'); }
+      dbg('Parse error','err');
+      return [];
     }
-  } catch(e) { dbg('Error: '+e.message,'err'); }
+  } catch(e) { dbg('Error: '+e.message,'err'); return []; }
 }
 
 async function processQueue() {
   if (processingQueue) return;
   processingQueue = true;
   while (phraseQueue.length > 0) {
-    const phrase = phraseQueue.shift();
-    await translatePhrase(phrase);
-    // Wait for translation to be readable before showing next
-    if (phraseQueue.length > 0) {
-      await new Promise(r => setTimeout(r, 2200));
+    const arabic = phraseQueue.shift();
+    heardBox.textContent = arabic;
+    dbg('Splitting & translating...');
+    const phrases = await splitAndTranslate(arabic);
+    for (let i = 0; i < phrases.length; i++) {
+      const p = phrases[i];
+      if (p.translation) {
+        heardBox.textContent = p.arabic || arabic;
+        show(p.translation, p.label || (mode === 'dua' ? 'Witr Dua' : (p.surah || '')));
+        dbg('');
+        if (i < phrases.length - 1) {
+          await new Promise(r => setTimeout(r, 2200));
+        }
+      }
     }
   }
   processingQueue = false;
-}
-
-function queuePhrases(text) {
-  const phrases = splitIntoPhrases(text);
-  for (const p of phrases) {
-    phraseQueue.push(p);
-  }
-  processQueue();
 }
 
 function startRecognition() {
@@ -300,9 +281,11 @@ function startRecognition() {
       const t = event.results[i][0].transcript.trim();
       if (event.results[i].isFinal) {
         if (t.length > 1) {
-          heardBox.textContent = t;
-          queuePhrases(t);
+          phraseQueue.push(t);
+          processQueue();
         }
+      } else {
+        heardBox.textContent = t;
       }
     }
   };
@@ -344,7 +327,6 @@ function toggleListening() {
 </script>
 </body>
 </html>
-
 
 
 
