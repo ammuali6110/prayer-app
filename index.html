@@ -120,7 +120,6 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
 let isListening = false;
 let recognition = null;
 let mode = 'ayah';
-let translateTimer = null;
 let lastSent = '';
 let isTranslating = false;
 
@@ -174,7 +173,6 @@ function clearDisplay() {
 }
 
 function show(text, label, surah, ayah) {
-  // Flash complete translation with dark highlight
   mainText.style.opacity = '0';
   setTimeout(() => {
     mainText.textContent = text;
@@ -183,8 +181,6 @@ function show(text, label, surah, ayah) {
     mainText.style.borderRadius = '10px';
     mainText.style.padding = '1rem';
     mainText.style.opacity = '1';
-
-    // After 1.5s fade back to normal color (ready for next)
     setTimeout(() => {
       mainText.style.color = '#e8dfc8';
       mainText.style.background = 'transparent';
@@ -192,7 +188,6 @@ function show(text, label, surah, ayah) {
       mainText.style.borderRadius = '0';
     }, 1500);
   }, 80);
-
   if (surah && surah !== 'Unknown' && surah !== '') {
     surahBadge.textContent = surah; surahBadge.style.display = 'inline-block';
     duaLabel.textContent = ayah ? 'Ayah ' + ayah : '';
@@ -213,10 +208,10 @@ async function translate(arabic) {
   const lang = document.getElementById('langSelect').value;
 
   const prompt = mode === 'dua'
-    ? `Expert Islamic scholar. Translate this Witr/Qunoot Arabic phrase completely. Know all madhabs and regional styles. Correct speech recognition errors. Arabic: "${arabic}"
-Respond ONLY raw JSON: {"arabic":"<corrected>","translation":"<complete natural ${lang} translation>","label":"<exactly one word: Praise or Qunoot or Dua or Supplication>"}`
-    : `Quran translator. Arabic: "${arabic}"
-Respond ONLY raw JSON: {"arabic":"<corrected>","translation":"<${lang}>","surah":"<name or empty>","ayah":"<number or empty>"}`;
+    ? `You are an expert Islamic scholar specializing in Witr prayer and Qunoot duas. You know all four madhabs (Hanafi, Maliki, Shafi'i, Hanbali), all regional imam styles (Arab, Pakistani, Indian, Turkish, African, Southeast Asian), and all common qunoot phrases and praises. The Arabic below was captured at a natural pause in speech — it is one complete unit of meaning (a praise, a supplication, or a qunoot phrase). Correct any speech recognition errors and translate the complete meaning naturally. Arabic: "${arabic}"
+Respond ONLY raw JSON no markdown: {"arabic":"<corrected>","translation":"<complete natural ${lang} translation>","label":"<one word: Praise or Qunoot or Dua or Supplication>"}`
+    : `Quran translator. Arabic heard from imam at a natural pause: "${arabic}"
+Respond ONLY raw JSON no markdown: {"arabic":"<corrected>","translation":"<${lang} translation>","surah":"<surah name or empty>","ayah":"<number or empty>"}`;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -243,19 +238,13 @@ Respond ONLY raw JSON: {"arabic":"<corrected>","translation":"<${lang}>","surah"
         heardBox.textContent = result.arabic || arabic;
         dbg('');
       }
-    } catch(parseErr) {
-      const match = raw.match(/"translation"\s*:\s*"([^"]{3,})"/);
-      if (match) { show(match[1], mode === 'dua' ? 'Witr Dua' : '', '', ''); dbg(''); }
+    } catch(e) {
+      const m = raw.match(/"translation":"([^"]+)"/);
+      if (m) { show(m[1], '', '', ''); dbg(''); }
       else { dbg('Parse error', 'err'); lastSent = ''; }
     }
   } catch(e) { dbg('Error: '+e.message,'err'); }
   isTranslating = false;
-}
-
-function fireTranslation(text) {
-  if (!text || text.trim().length < 2) return;
-  clearTimeout(translateTimer);
-  translateTimer = setTimeout(() => translate(text.trim()), 0);
 }
 
 function startRecognition() {
@@ -266,26 +255,15 @@ function startRecognition() {
   recognition.continuous = true;
   recognition.interimResults = true;
   recognition.maxAlternatives = 1;
-  let interimBuffer = '';
-  let interimTimer = null;
 
   recognition.onresult = (event) => {
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const t = event.results[i][0].transcript.trim();
       if (event.results[i].isFinal) {
-        clearTimeout(interimTimer);
-        interimBuffer = '';
         lastSent = '';
         isTranslating = false;
         heardBox.textContent = t;
-        if (t.length > 1) fireTranslation(t);
-      } else {
-        interimBuffer = t;
-        heardBox.textContent = t;
-        clearTimeout(interimTimer);
-        interimTimer = setTimeout(() => {
-          if (interimBuffer.length > 3) fireTranslation(interimBuffer);
-        }, 500);
+        if (t.length > 1) translate(t);
       }
     }
   };
@@ -315,7 +293,6 @@ function toggleListening() {
     startRecognition();
   } else {
     isListening = false;
-    clearTimeout(translateTimer);
     if (recognition) { recognition.onend = null; recognition.stop(); recognition = null; }
     micBtn.className = 'mic-btn';
     statusEl.className = 'status';
@@ -327,3 +304,8 @@ function toggleListening() {
 </script>
 </body>
 </html>
+
+
+
+
+
