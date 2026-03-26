@@ -48,11 +48,13 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
 </style>
 </head>
 <body>
+
 <div class="header">
   <span class="arabic-title">مترجم الصلاة</span>
   <div class="divider"></div>
   <span class="english-title">Live Prayer Translator</span>
 </div>
+
 <div class="setup" id="setup">
   <label>Enter your Anthropic API key</label>
   <div class="setup-row">
@@ -61,6 +63,7 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
   </div>
   <div class="setup-note">Get your key at console.anthropic.com → API Keys. Your key is saved in this browser only.</div>
 </div>
+
 <div class="mode-row">
   <button class="mode-btn active" id="modeAyah" onclick="setMode('ayah')">
     <span class="mode-title">Ayah mode</span>
@@ -71,6 +74,7 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
     <span class="mode-desc">Qunoot & duas</span>
   </button>
 </div>
+
 <div class="mic-section">
   <button class="mic-btn" id="micBtn" onclick="toggleListening()">
     <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
@@ -82,7 +86,9 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
   </button>
   <div class="status" id="status">Tap microphone to begin</div>
 </div>
+
 <div class="heard-box" id="heardBox">Listening for Arabic...</div>
+
 <div class="card">
   <div class="badge-row">
     <span class="surah-badge" id="surahBadge" style="display:none"></span>
@@ -90,6 +96,7 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
   </div>
   <div id="mainText"><div class="placeholder">Tap mic and hold near the imam.</div></div>
 </div>
+
 <div class="bottom-row">
   <div class="left-btns">
     <button class="text-btn" onclick="changeKey()">Change key</button>
@@ -105,14 +112,17 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
     <option value="Bengali">Bengali</option>
   </select>
 </div>
+
 <div class="debug" id="debug"></div>
 <div class="disclaimer">AI translation for understanding only. Verify with a qualified scholar.</div>
+
 <script>
 let isListening = false;
 let recognition = null;
 let mode = 'ayah';
 let translateTimer = null;
 let lastSent = '';
+let isTranslating = false;
 
 const micBtn = document.getElementById('micBtn');
 const statusEl = document.getElementById('status');
@@ -151,6 +161,10 @@ function setMode(m) {
 
 function clearDisplay() {
   mainText.style.opacity = '1';
+  mainText.style.background = 'transparent';
+  mainText.style.borderRadius = '0';
+  mainText.style.padding = '0';
+  mainText.style.color = '#e8dfc8';
   mainText.innerHTML = '<div class="placeholder">Tap mic and hold near the imam.</div>';
   surahBadge.style.display = 'none';
   duaLabel.textContent = '';
@@ -160,8 +174,25 @@ function clearDisplay() {
 }
 
 function show(text, label, surah, ayah) {
+  // Flash complete translation with dark highlight
   mainText.style.opacity = '0';
-  setTimeout(() => { mainText.textContent = text; mainText.style.opacity = '1'; }, 100);
+  setTimeout(() => {
+    mainText.textContent = text;
+    mainText.style.color = '#080c18';
+    mainText.style.background = '#c9a96e';
+    mainText.style.borderRadius = '10px';
+    mainText.style.padding = '1rem';
+    mainText.style.opacity = '1';
+
+    // After 1.5s fade back to normal color (ready for next)
+    setTimeout(() => {
+      mainText.style.color = '#e8dfc8';
+      mainText.style.background = 'transparent';
+      mainText.style.padding = '0';
+      mainText.style.borderRadius = '0';
+    }, 1500);
+  }, 80);
+
   if (surah && surah !== 'Unknown' && surah !== '') {
     surahBadge.textContent = surah; surahBadge.style.display = 'inline-block';
     duaLabel.textContent = ayah ? 'Ayah ' + ayah : '';
@@ -174,14 +205,18 @@ function show(text, label, surah, ayah) {
 async function translate(arabic) {
   if (!arabic || arabic.trim().length < 2) return;
   if (arabic === lastSent) return;
+  if (isTranslating) return;
   lastSent = arabic;
+  isTranslating = true;
   const key = localStorage.getItem('prayer_key');
-  if (!key) return;
+  if (!key) { isTranslating = false; return; }
   const lang = document.getElementById('langSelect').value;
 
   const prompt = mode === 'dua'
-    ? `Expert Islamic scholar. Translate this single Witr/Qunoot Arabic phrase. Know all madhabs and regional styles. Correct speech recognition errors. Keep translation short and natural. Arabic: "${arabic}"\nRespond ONLY raw JSON: {"arabic":"<corrected>","translation":"<short natural ${lang} translation>","label":"<Praise or Dua>"}`
-    : `Quran translator. Arabic: "${arabic}"\nRespond ONLY raw JSON: {"arabic":"<corrected>","translation":"<${lang}>","surah":"<name or empty>","ayah":"<number or empty>"}`;
+    ? `Expert Islamic scholar. Translate this Witr/Qunoot Arabic phrase completely. Know all madhabs and regional styles. Correct speech recognition errors. Arabic: "${arabic}"
+Respond ONLY raw JSON: {"arabic":"<corrected>","translation":"<complete natural ${lang} translation>","label":"<exactly one word: Praise or Qunoot or Dua or Supplication>"}`
+    : `Quran translator. Arabic: "${arabic}"
+Respond ONLY raw JSON: {"arabic":"<corrected>","translation":"<${lang}>","surah":"<name or empty>","ayah":"<number or empty>"}`;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -198,7 +233,7 @@ async function translate(arabic) {
         messages: [{ role: 'user', content: prompt }]
       })
     });
-    if (!res.ok) { const e = await res.json().catch(()=>({})); dbg('Error: '+(e.error?.message||res.status),'err'); return; }
+    if (!res.ok) { const e = await res.json().catch(()=>({})); dbg('Error: '+(e.error?.message||res.status),'err'); isTranslating = false; return; }
     const data = await res.json();
     const raw = data.content.map(i=>i.text||'').join('');
     try {
@@ -211,9 +246,10 @@ async function translate(arabic) {
     } catch(parseErr) {
       const match = raw.match(/"translation"\s*:\s*"([^"]{3,})"/);
       if (match) { show(match[1], mode === 'dua' ? 'Witr Dua' : '', '', ''); dbg(''); }
-      else { dbg('Parse error — retrying', 'err'); lastSent = ''; }
+      else { dbg('Parse error', 'err'); lastSent = ''; }
     }
   } catch(e) { dbg('Error: '+e.message,'err'); }
+  isTranslating = false;
 }
 
 function fireTranslation(text) {
@@ -232,6 +268,7 @@ function startRecognition() {
   recognition.maxAlternatives = 1;
   let interimBuffer = '';
   let interimTimer = null;
+
   recognition.onresult = (event) => {
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const t = event.results[i][0].transcript.trim();
@@ -239,6 +276,7 @@ function startRecognition() {
         clearTimeout(interimTimer);
         interimBuffer = '';
         lastSent = '';
+        isTranslating = false;
         heardBox.textContent = t;
         if (t.length > 1) fireTranslation(t);
       } else {
@@ -251,13 +289,16 @@ function startRecognition() {
       }
     }
   };
+
   recognition.onerror = (e) => {
     if (e.error === 'no-speech') return;
     if (e.error === 'not-allowed') { dbg('Mic blocked','err'); isListening = false; micBtn.className='mic-btn'; statusEl.className='status'; statusEl.textContent='Tap microphone to begin'; }
   };
+
   recognition.onend = () => {
     if (isListening) setTimeout(() => { try { recognition.start(); } catch(e) {} }, 100);
   };
+
   try { recognition.start(); } catch(e) { dbg('Mic error: '+e.message,'err'); }
 }
 
@@ -266,6 +307,7 @@ function toggleListening() {
   if (!isListening) {
     isListening = true;
     lastSent = '';
+    isTranslating = false;
     micBtn.className = 'mic-btn listening';
     statusEl.className = 'status listening';
     statusEl.textContent = 'Listening...';
