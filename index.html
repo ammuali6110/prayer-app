@@ -124,6 +124,7 @@ let phraseQueue = [];
 let processingQueue = false;
 let silenceTimer = null;
 let currentInterim = '';
+let lastFired = '';
 
 const micBtn = document.getElementById('micBtn');
 const statusEl = document.getElementById('status');
@@ -173,12 +174,12 @@ function clearDisplay() {
   phraseQueue = [];
   processingQueue = false;
   currentInterim = '';
+  lastFired = '';
   clearTimeout(silenceTimer);
   dbg('');
 }
 
 function show(text, label) {
-  mainText.style.transition = 'none';
   mainText.style.opacity = '0';
   setTimeout(() => {
     mainText.textContent = text;
@@ -199,9 +200,9 @@ function show(text, label) {
 }
 
 async function splitAndTranslate(arabic) {
-  if (!arabic || arabic.trim().length < 2) return;
+  if (!arabic || arabic.trim().length < 2) return [];
   const key = localStorage.getItem('prayer_key');
-  if (!key) return;
+  if (!key) return [];
   const lang = document.getElementById('langSelect').value;
 
   const prompt = mode === 'dua'
@@ -209,12 +210,12 @@ async function splitAndTranslate(arabic) {
 
 The following Arabic was heard from an imam during Witr prayer. It may contain multiple separate phrases, duas, or praises said one after another.
 
-YOUR JOB: Split into individual phrases (each one the imam would say as a separate unit between breaths), correct any speech recognition errors, and translate each one.
+Split into individual phrases (each one the imam says as a separate unit between breaths), correct speech recognition errors, and translate each one.
 
 Arabic heard: "${arabic}"
 
-Respond ONLY with a raw JSON array, no markdown, no backticks:
-[{"arabic":"<phrase 1 corrected>","translation":"<${lang} translation>","label":"<Praise or Dua or Qunoot>"},{"arabic":"<phrase 2 corrected>","translation":"<${lang} translation>","label":"<Praise or Dua or Qunoot>"}]`
+Respond ONLY with a raw JSON array, no markdown:
+[{"arabic":"<phrase corrected>","translation":"<${lang} translation>","label":"<Praise or Dua or Qunoot>"}]`
     : `Quran translator. Arabic: "${arabic}"
 Respond ONLY raw JSON array no markdown:
 [{"arabic":"<corrected>","translation":"<${lang}>","surah":"<name or empty>","ayah":"<number or empty>"}]`;
@@ -266,11 +267,14 @@ async function processQueue() {
   processingQueue = false;
 }
 
-function handleArabic(text) {
-  if (!text || text.trim().length < 2) return;
+function fire(text) {
+  const t = text.trim();
+  if (!t || t.length < 2) return;
+  if (t === lastFired) return;
+  lastFired = t;
   currentInterim = '';
   clearTimeout(silenceTimer);
-  phraseQueue.push(text.trim());
+  phraseQueue.push(t);
   processQueue();
 }
 
@@ -290,24 +294,30 @@ function startRecognition() {
         clearTimeout(silenceTimer);
         currentInterim = '';
         heardBox.textContent = t;
-        if (t.length > 1) handleArabic(t);
+        fire(t);
       } else {
         currentInterim = t;
         heardBox.textContent = t;
-        // Fire on silence after 700ms of no new interim results
         clearTimeout(silenceTimer);
         silenceTimer = setTimeout(() => {
-          if (currentInterim.length > 3) {
-            handleArabic(currentInterim);
+          if (currentInterim && currentInterim.length > 3) {
+            heardBox.textContent = currentInterim;
+            fire(currentInterim);
           }
-        }, 700);
+        }, 500);
       }
     }
   };
 
   recognition.onerror = (e) => {
     if (e.error === 'no-speech') return;
-    if (e.error === 'not-allowed') { dbg('Mic blocked','err'); isListening = false; micBtn.className='mic-btn'; statusEl.className='status'; statusEl.textContent='Tap microphone to begin'; }
+    if (e.error === 'not-allowed') {
+      dbg('Mic blocked','err');
+      isListening = false;
+      micBtn.className = 'mic-btn';
+      statusEl.className = 'status';
+      statusEl.textContent = 'Tap microphone to begin';
+    }
   };
 
   recognition.onend = () => {
@@ -324,6 +334,7 @@ function toggleListening() {
     phraseQueue = [];
     processingQueue = false;
     currentInterim = '';
+    lastFired = '';
     micBtn.className = 'mic-btn listening';
     statusEl.className = 'status listening';
     statusEl.textContent = 'Listening...';
@@ -344,6 +355,5 @@ function toggleListening() {
 </script>
 </body>
 </html>
-
 
 
