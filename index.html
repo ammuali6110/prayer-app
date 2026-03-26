@@ -120,8 +120,9 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
 let isListening = false;
 let recognition = null;
 let mode = 'ayah';
-let lastSent = '';
 let isTranslating = false;
+let phraseQueue = [];
+let processingQueue = false;
 
 const micBtn = document.getElementById('micBtn');
 const statusEl = document.getElementById('status');
@@ -168,7 +169,8 @@ function clearDisplay() {
   surahBadge.style.display = 'none';
   duaLabel.textContent = '';
   heardBox.textContent = '';
-  lastSent = '';
+  phraseQueue = [];
+  processingQueue = false;
   dbg('');
 }
 
@@ -186,10 +188,11 @@ function show(text, label, surah, ayah) {
       mainText.style.background = 'transparent';
       mainText.style.padding = '0';
       mainText.style.borderRadius = '0';
-    }, 1500);
+    }, 1800);
   }, 80);
   if (surah && surah !== 'Unknown' && surah !== '') {
-    surahBadge.textContent = surah; surahBadge.style.display = 'inline-block';
+    surahBadge.textContent = surah;
+    surahBadge.style.display = 'inline-block';
     duaLabel.textContent = ayah ? 'Ayah ' + ayah : '';
   } else {
     surahBadge.style.display = 'none';
@@ -197,20 +200,35 @@ function show(text, label, surah, ayah) {
   }
 }
 
-async function translate(arabic) {
+function splitIntoPhrases(text) {
+  // Split on Arabic phrase boundaries:
+  // - Arabic comma ، or regular comma
+  // - Common connective words that start a new dua: وَ (wa) at start of phrase, ثم (thumma)
+  // - Split on "و" when it appears between two substantial chunks
+  let phrases = text
+    .split(/[،,]/)
+    .map(p => p.trim())
+    .filter(p => p.length > 2);
+
+  // If no commas found, try splitting on Arabic "و" connective between phrases
+  if (phrases.length === 1) {
+    const parts = text.split(/\s+و\s+/).map(p => p.trim()).filter(p => p.length > 2);
+    if (parts.length > 1) return parts;
+  }
+
+  return phrases.length > 0 ? phrases : [text];
+}
+
+async function translatePhrase(arabic) {
   if (!arabic || arabic.trim().length < 2) return;
-  if (arabic === lastSent) return;
-  if (isTranslating) return;
-  lastSent = arabic;
-  isTranslating = true;
   const key = localStorage.getItem('prayer_key');
-  if (!key) { isTranslating = false; return; }
+  if (!key) return;
   const lang = document.getElementById('langSelect').value;
 
   const prompt = mode === 'dua'
-    ? `You are an expert Islamic scholar specializing in Witr prayer and Qunoot duas. You know all four madhabs (Hanafi, Maliki, Shafi'i, Hanbali), all regional imam styles (Arab, Pakistani, Indian, Turkish, African, Southeast Asian), and all common qunoot phrases and praises. The Arabic below was captured at a natural pause in speech — it is one complete unit of meaning (a praise, a supplication, or a qunoot phrase). Correct any speech recognition errors and translate the complete meaning naturally. Arabic: "${arabic}"
+    ? `Expert Islamic scholar specializing in Witr prayer and Qunoot duas. Know all four madhabs, all regional imam styles (Arab, Pakistani, Indian, Turkish, African, Southeast Asian). This is ONE complete phrase/praise from the Witr dua — translate it completely and naturally. Correct any speech recognition errors. Arabic: "${arabic}"
 Respond ONLY raw JSON no markdown: {"arabic":"<corrected>","translation":"<complete natural ${lang} translation>","label":"<one word: Praise or Qunoot or Dua or Supplication>"}`
-    : `Quran translator. Arabic heard from imam at a natural pause: "${arabic}"
+    : `Quran translator. One complete phrase from imam: "${arabic}"
 Respond ONLY raw JSON no markdown: {"arabic":"<corrected>","translation":"<${lang} translation>","surah":"<surah name or empty>","ayah":"<number or empty>"}`;
 
   try {
@@ -224,27 +242,48 @@ Respond ONLY raw JSON no markdown: {"arabic":"<corrected>","translation":"<${lan
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 400,
+        max_tokens: 300,
         messages: [{ role: 'user', content: prompt }]
       })
     });
-    if (!res.ok) { const e = await res.json().catch(()=>({})); dbg('Error: '+(e.error?.message||res.status),'err'); isTranslating = false; return; }
+    if (!res.ok) { const e = await res.json().catch(()=>({})); dbg('Error: '+(e.error?.message||res.status),'err'); return; }
     const data = await res.json();
     const raw = data.content.map(i=>i.text||'').join('');
     try {
       const result = JSON.parse(raw.replace(/```json|```/g,'').trim());
       if (result.translation) {
-        show(result.translation, result.label, result.surah, result.ayah);
         heardBox.textContent = result.arabic || arabic;
+        show(result.translation, result.label, result.surah, result.ayah);
         dbg('');
       }
     } catch(e) {
       const m = raw.match(/"translation":"([^"]+)"/);
       if (m) { show(m[1], '', '', ''); dbg(''); }
-      else { dbg('Parse error', 'err'); lastSent = ''; }
+      else { dbg('Parse error', 'err'); }
     }
   } catch(e) { dbg('Error: '+e.message,'err'); }
-  isTranslating = false;
+}
+
+async function processQueue() {
+  if (processingQueue) return;
+  processingQueue = true;
+  while (phraseQueue.length > 0) {
+    const phrase = phraseQueue.shift();
+    await translatePhrase(phrase);
+    // Wait for translation to be readable before showing next
+    if (phraseQueue.length > 0) {
+      await new Promise(r => setTimeout(r, 2200));
+    }
+  }
+  processingQueue = false;
+}
+
+function queuePhrases(text) {
+  const phrases = splitIntoPhrases(text);
+  for (const p of phrases) {
+    phraseQueue.push(p);
+  }
+  processQueue();
 }
 
 function startRecognition() {
@@ -260,10 +299,10 @@ function startRecognition() {
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const t = event.results[i][0].transcript.trim();
       if (event.results[i].isFinal) {
-        lastSent = '';
-        isTranslating = false;
-        heardBox.textContent = t;
-        if (t.length > 1) translate(t);
+        if (t.length > 1) {
+          heardBox.textContent = t;
+          queuePhrases(t);
+        }
       }
     }
   };
@@ -284,8 +323,8 @@ function toggleListening() {
   if (!localStorage.getItem('prayer_key')) { dbg('Enter API key first','err'); return; }
   if (!isListening) {
     isListening = true;
-    lastSent = '';
-    isTranslating = false;
+    phraseQueue = [];
+    processingQueue = false;
     micBtn.className = 'mic-btn listening';
     statusEl.className = 'status listening';
     statusEl.textContent = 'Listening...';
@@ -293,6 +332,7 @@ function toggleListening() {
     startRecognition();
   } else {
     isListening = false;
+    phraseQueue = [];
     if (recognition) { recognition.onend = null; recognition.stop(); recognition = null; }
     micBtn.className = 'mic-btn';
     statusEl.className = 'status';
@@ -304,7 +344,6 @@ function toggleListening() {
 </script>
 </body>
 </html>
-
 
 
 
