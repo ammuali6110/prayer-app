@@ -120,11 +120,8 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
 let isListening = false;
 let recognition = null;
 let mode = 'ayah';
-let phraseQueue = [];
-let processingQueue = false;
-let silenceTimer = null;
-let currentInterim = '';
 let lastFired = '';
+let isTranslating = false;
 
 const micBtn = document.getElementById('micBtn');
 const statusEl = document.getElementById('status');
@@ -171,11 +168,8 @@ function clearDisplay() {
   surahBadge.style.display = 'none';
   duaLabel.textContent = '';
   heardBox.textContent = '';
-  phraseQueue = [];
-  processingQueue = false;
-  currentInterim = '';
   lastFired = '';
-  clearTimeout(silenceTimer);
+  isTranslating = false;
   dbg('');
 }
 
@@ -199,32 +193,32 @@ function show(text, label) {
   duaLabel.textContent = label || '';
 }
 
-async function splitAndTranslate(arabic) {
-  if (!arabic || arabic.trim().length < 2) return [];
+async function translate(arabic) {
+  if (!arabic || arabic.trim().length < 2) return;
+  if (arabic === lastFired) return;
+  if (isTranslating) { lastFired = ''; return; }
+  lastFired = arabic;
+  isTranslating = true;
+
   const key = localStorage.getItem('prayer_key');
-  if (!key) return [];
+  if (!key) { isTranslating = false; return; }
   const lang = document.getElementById('langSelect').value;
 
   const prompt = mode === 'dua'
-    ? `You are an expert Islamic scholar and translator specializing in Witr prayer and Qunoot duas. You know all four madhabs, all regional imam styles (Arab, Pakistani, Indian, Turkish, African, Southeast Asian), and all common qunoot phrases.
+    ? `You are an expert Islamic scholar translating Witr prayer duas for someone following along during prayer.
 
-The following Arabic was heard from an imam during Witr prayer. It may contain multiple separate phrases, duas, or praises said one after another.
+Translate this Arabic into one clean ${lang} sentence. Rules:
+- Translate the WHOLE thing as one complete sentence — do not split it
+- Use natural present tense: "O Allah, guide us" not "O Allah, who guides us"
+- Pick ONE word per concept — never use slashes like give/giving
+- Keep it short enough to read in 3 seconds
+- Correct any speech recognition errors
 
-YOUR RULES:
-1. Split into individual phrases — one per breath the imam takes
-2. Correct any speech recognition errors using your knowledge of common duas
-3. Translate each phrase into natural, clear ${lang} that a non-Arabic speaker can immediately understand
-4. Choose ONE definitive translation — never use slashes like give/giving or forgive/pardon. Pick the single most natural word for the context
-5. Use present tense for supplications: "O Allah, guide us" not "O Allah, giving guidance to us"
-6. Keep it concise — the person is reading during prayer, not studying
+Arabic: "${arabic}"
 
-Arabic heard: "${arabic}"
-
-Respond ONLY with a raw JSON array, no markdown:
-[{"arabic":"<phrase corrected>","translation":"<clean decisive ${lang} translation>","label":"<Praise or Dua or Qunoot>"}]`
+Respond ONLY raw JSON: {"arabic":"<corrected>","translation":"<one complete ${lang} sentence>","label":"<Praise or Dua or Qunoot>"}`
     : `Quran translator. Arabic: "${arabic}"
-Respond ONLY raw JSON array no markdown:
-[{"arabic":"<corrected>","translation":"<${lang}>","surah":"<name or empty>","ayah":"<number or empty>"}]`;
+Respond ONLY raw JSON: {"arabic":"<corrected>","translation":"<${lang}>","surah":"<name or empty>","ayah":"<number or empty>"}`;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -237,51 +231,23 @@ Respond ONLY raw JSON array no markdown:
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 600,
+        max_tokens: 300,
         messages: [{ role: 'user', content: prompt }]
       })
     });
-    if (!res.ok) { const e = await res.json().catch(()=>({})); dbg('Error: '+(e.error?.message||res.status),'err'); return []; }
+    if (!res.ok) { const e = await res.json().catch(()=>({})); dbg('Error: '+(e.error?.message||res.status),'err'); isTranslating = false; return; }
     const data = await res.json();
     const raw = data.content.map(i=>i.text||'').join('');
     try {
       const result = JSON.parse(raw.replace(/```json|```/g,'').trim());
-      return Array.isArray(result) ? result : [result];
-    } catch(e) { dbg('Parse error','err'); return []; }
-  } catch(e) { dbg('Error: '+e.message,'err'); return []; }
-}
-
-async function processQueue() {
-  if (processingQueue) return;
-  processingQueue = true;
-  while (phraseQueue.length > 0) {
-    const arabic = phraseQueue.shift();
-    dbg('Translating...');
-    const phrases = await splitAndTranslate(arabic);
-    for (let i = 0; i < phrases.length; i++) {
-      const p = phrases[i];
-      if (p && p.translation) {
-        heardBox.textContent = p.arabic || arabic;
-        show(p.translation, p.label || (mode === 'dua' ? 'Witr Dua' : (p.surah || '')));
+      if (result.translation) {
+        heardBox.textContent = result.arabic || arabic;
+        show(result.translation, result.label || (mode === 'dua' ? 'Witr Dua' : (result.surah || '')));
         dbg('');
-        if (i < phrases.length - 1) {
-          await new Promise(r => setTimeout(r, 2200));
-        }
       }
-    }
-  }
-  processingQueue = false;
-}
-
-function fire(text) {
-  const t = text.trim();
-  if (!t || t.length < 2) return;
-  if (t === lastFired) return;
-  lastFired = t;
-  currentInterim = '';
-  clearTimeout(silenceTimer);
-  phraseQueue.push(t);
-  processQueue();
+    } catch(e) { dbg('Parse error','err'); lastFired = ''; }
+  } catch(e) { dbg('Error: '+e.message,'err'); lastFired = ''; }
+  isTranslating = false;
 }
 
 function startRecognition() {
@@ -290,27 +256,24 @@ function startRecognition() {
   recognition = new SR();
   recognition.lang = 'ar-SA';
   recognition.continuous = true;
-  recognition.interimResults = true;
+  recognition.interimResults = false;
   recognition.maxAlternatives = 1;
 
   recognition.onresult = (event) => {
     for (let i = event.resultIndex; i < event.results.length; i++) {
-      const t = event.results[i][0].transcript.trim();
       if (event.results[i].isFinal) {
-        if (t.length > 1) fire(t);
+        const t = event.results[i][0].transcript.trim();
+        if (t.length > 1) {
+          heardBox.textContent = t;
+          translate(t);
+        }
       }
     }
   };
 
   recognition.onerror = (e) => {
     if (e.error === 'no-speech') return;
-    if (e.error === 'not-allowed') {
-      dbg('Mic blocked','err');
-      isListening = false;
-      micBtn.className = 'mic-btn';
-      statusEl.className = 'status';
-      statusEl.textContent = 'Tap microphone to begin';
-    }
+    if (e.error === 'not-allowed') { dbg('Mic blocked','err'); isListening = false; micBtn.className='mic-btn'; statusEl.className='status'; statusEl.textContent='Tap microphone to begin'; }
   };
 
   recognition.onend = () => {
@@ -324,10 +287,8 @@ function toggleListening() {
   if (!localStorage.getItem('prayer_key')) { dbg('Enter API key first','err'); return; }
   if (!isListening) {
     isListening = true;
-    phraseQueue = [];
-    processingQueue = false;
-    currentInterim = '';
     lastFired = '';
+    isTranslating = false;
     micBtn.className = 'mic-btn listening';
     statusEl.className = 'status listening';
     statusEl.textContent = 'Listening...';
@@ -335,8 +296,6 @@ function toggleListening() {
     startRecognition();
   } else {
     isListening = false;
-    clearTimeout(silenceTimer);
-    phraseQueue = [];
     if (recognition) { recognition.onend = null; recognition.stop(); recognition = null; }
     micBtn.className = 'mic-btn';
     statusEl.className = 'status';
