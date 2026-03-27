@@ -297,20 +297,7 @@ function startRecognition() {
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const t = event.results[i][0].transcript.trim();
       if (event.results[i].isFinal) {
-        clearTimeout(silenceTimer);
-        currentInterim = '';
-        heardBox.textContent = t;
-        fire(t);
-      } else {
-        currentInterim = t;
-        heardBox.textContent = t;
-        clearTimeout(silenceTimer);
-        silenceTimer = setTimeout(() => {
-          if (currentInterim && currentInterim.length > 3) {
-            heardBox.textContent = currentInterim;
-            fire(currentInterim);
-          }
-        }, 500);
+        if (t.length > 1) fire(t);
       }
     }
   };
