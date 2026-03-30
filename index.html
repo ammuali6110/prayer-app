@@ -42,8 +42,7 @@ body{background:var(--bg);font-family:'Lato',sans-serif;color:var(--text);min-he
 .badge-row{min-height:22px;margin-bottom:.75rem;align-self:flex-start;display:flex;gap:8px;align-items:center}
 .surah-badge{background:#1a2a40;border:1px solid #2a4060;border-radius:6px;padding:3px 10px;font-size:12px;color:var(--gold);font-weight:700}
 .dua-label{font-size:11px;color:#3a4a6a;font-style:italic}
-#mainText{font-size:27px;font-weight:300;color:var(--text);line-height:1.75;text-align:center;width:100%;transition:opacity .06s ease}
-#mainText.fade{opacity:0}
+#mainText{font-size:27px;font-weight:300;color:var(--text);line-height:1.75;text-align:center;width:100%}
 .flash{position:absolute;inset:0;background:var(--gold);border-radius:14px;opacity:0;transition:opacity .1s ease;pointer-events:none;z-index:0}
 .flash.on{opacity:.12}
 .card>:not(.flash){position:relative;z-index:1}
@@ -128,16 +127,7 @@ select{background:var(--surface);border:1px solid var(--border);color:var(--text
 <div class="disclaimer">AI translation for understanding only. Verify with a qualified scholar.</div>
 
 <script>
-var isOn=false, recog=null, mode='ayah';
-
-// seq: every translate call gets a number. Only the highest one can update the screen.
-var seq=0;
-
-// Speculative translate: we start a call on interim results so by the time
-// isFinal arrives, the translation may already be done or nearly done.
-// interimSeq tracks the last interim call so we don't spam the API.
-var lastInterimText='';
-var interimCooldown=false;
+var isOn=false, recog=null, mode='ayah', activeCall=0;
 
 var micBtn=document.getElementById('micBtn');
 var statusEl=document.getElementById('status');
@@ -172,10 +162,7 @@ function setMode(m){
   clearDisplay();
 }
 function clearDisplay(){
-  seq++;
-  lastInterimText='';
-  interimCooldown=false;
-  mainText.className='';
+  activeCall++;
   mainText.innerHTML='<div class="placeholder">Tap mic and hold near the imam.</div>';
   surahBadge.style.display='none';
   duaLabel.textContent='';
@@ -184,32 +171,31 @@ function clearDisplay(){
   dbg('');
 }
 
-function showResult(translation,label,surah,ayah){
+// Flash the card gold when new translation arrives
+function doFlash(){
   flashEl.classList.add('on');
   setTimeout(function(){flashEl.classList.remove('on')},300);
-  mainText.classList.add('fade');
-  setTimeout(function(){
-    mainText.textContent=translation;
-    mainText.style.fontSize=translation.length>120?'19px':translation.length>70?'23px':'27px';
-    mainText.classList.remove('fade');
-    if(mode==='ayah'&&surah){
-      surahBadge.textContent=surah+(ayah?' · '+ayah:'');
-      surahBadge.style.display='';
-    } else {
-      surahBadge.style.display='none';
-    }
-    duaLabel.textContent=label||'';
-  },60);
 }
 
-var SYS_DUA='You are an expert Islamic scholar. Translate this Arabic Witr/Qunoot phrase into the target language.\nOutput ONLY raw JSON: {"translation":"<one complete natural sentence>","label":"<Praise|Supplication|Glorification|Salawat|Qunoot>"}\nNever fragments. Never X/Y alternatives. One confident sentence.';
+var SYS_DUA='Expert Islamic scholar. Translate the Arabic Witr/Qunoot phrase to the target language.\nReply with ONLY this JSON (no markdown): {"t":"<full sentence>","l":"<Praise|Supplication|Glorification|Salawat|Qunoot>"}\nOne complete sentence. No fragments. No alternatives.';
+var SYS_AYAH='Expert Quran translator. Translate the Arabic recitation to the target language.\nReply with ONLY this JSON (no markdown): {"t":"<full sentence>","s":"<surah English name or empty>","a":"<ayah number or empty>"}\nOne complete sentence. No fragments. No alternatives.';
 
-var SYS_AYAH='You are an expert Quran translator. Translate this Arabic recitation into the target language.\nOutput ONLY raw JSON: {"translation":"<one complete natural sentence>","surah":"<English name or empty>","ayah":"<number or empty>"}\nNever fragments. Never X/Y alternatives. One confident sentence.';
-
-function callAPI(arabic, mySeq){
+// Stream the translation — first token appears in ~300ms
+function translate(arabic){
   var key=localStorage.getItem('prayer_key');
-  if(!key) return;
+  if(!key||!arabic||arabic.trim().length<2) return;
   var lang=document.getElementById('langSelect').value;
+
+  // Cancel any previous call
+  var myCall=++activeCall;
+
+  heardBox.textContent=arabic;
+  heardBox.classList.add('lit');
+
+  // Clear card immediately so user knows something new is coming
+  mainText.textContent='';
+  surahBadge.style.display='none';
+  duaLabel.textContent='';
 
   fetch('https://api.anthropic.com/v1/messages',{
     method:'POST',
@@ -221,22 +207,77 @@ function callAPI(arabic, mySeq){
     },
     body:JSON.stringify({
       model:'claude-haiku-4-5-20251001',
-      max_tokens:200,
+      max_tokens:120,
+      stream:true,
       system:mode==='dua'?SYS_DUA:SYS_AYAH,
-      messages:[{role:'user',content:'Translate into '+lang+'.\n\nArabic: '+arabic}]
+      messages:[{role:'user',content:'Target language: '+lang+'\nArabic: '+arabic}]
     })
   })
-  .then(function(r){return r.json()})
-  .then(function(data){
-    // Only update screen if nothing newer has come in
-    if(mySeq!==seq) return;
-    var raw=data.content.map(function(i){return i.text||''}).join('').replace(/```json|```/g,'').trim();
-    try{
-      var p=JSON.parse(raw);
-      if(p&&p.translation&&p.translation.trim()) showResult(p.translation.trim(),p.label||'',p.surah||'',p.ayah||'');
-    }catch(e){dbg('parse err','err')}
+  .then(function(res){
+    if(myCall!==activeCall) return;
+    if(!res.ok){dbg('API error '+res.status,'err');return}
+
+    var reader=res.body.getReader();
+    var decoder=new TextDecoder();
+    var buf='';       // raw SSE buffer
+    var json='';      // accumulating JSON string from stream
+    var shown=false;  // have we flashed yet
+
+    function pump(){
+      reader.read().then(function(result){
+        if(myCall!==activeCall) return;
+        if(result.done){
+          // Stream finished — parse final JSON for label/surah/ayah
+          try{
+            var clean=json.replace(/```json|```/g,'').trim();
+            var p=JSON.parse(clean);
+            var label=p.l||p.label||'';
+            var surah=p.s||p.surah||'';
+            var ayah=p.a||p.ayah||'';
+            if(label) duaLabel.textContent=label;
+            if(mode==='ayah'&&surah){
+              surahBadge.textContent=surah+(ayah?' · '+ayah:'');
+              surahBadge.style.display='';
+            }
+          }catch(e){}
+          return;
+        }
+
+        // Parse SSE chunks
+        buf+=decoder.decode(result.value,{stream:true});
+        var lines=buf.split('\n');
+        buf=lines.pop(); // keep incomplete line
+
+        for(var i=0;i<lines.length;i++){
+          var line=lines[i].trim();
+          if(!line.startsWith('data:')) continue;
+          var data=line.slice(5).trim();
+          if(data==='[DONE]') continue;
+          try{
+            var evt=JSON.parse(data);
+            if(evt.type==='content_block_delta'&&evt.delta&&evt.delta.text){
+              json+=evt.delta.text;
+
+              // Extract the "t" value from the partial JSON as it streams in
+              // Look for "t":"..." or "translation":"..."
+              var match=json.match(/"t"\s*:\s*"((?:[^"\\]|\\.)*)"|"translation"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+              if(match){
+                var partial=(match[1]||match[2]).replace(/\\n/g,' ').replace(/\\"/g,'"').trim();
+                if(partial.length>0){
+                  if(!shown){shown=true;doFlash();}
+                  mainText.textContent=partial;
+                  mainText.style.fontSize=partial.length>120?'19px':partial.length>70?'23px':'27px';
+                }
+              }
+            }
+          }catch(e){}
+        }
+        pump();
+      }).catch(function(e){if(myCall===activeCall)dbg(e.message,'err')});
+    }
+    pump();
   })
-  .catch(function(e){if(mySeq===seq)dbg(e.message,'err')});
+  .catch(function(e){if(myCall===activeCall)dbg(e.message,'err')});
 }
 
 function startRecog(){
@@ -252,33 +293,13 @@ function startRecog(){
     for(var i=e.resultIndex;i<e.results.length;i++){
       var t=e.results[i][0].transcript.trim();
       if(!t) continue;
-
       if(e.results[i].isFinal){
-        // Final result — this is the clean committed text.
-        // Always fire a fresh call with the confirmed text.
-        heardBox.textContent=t;
-        heardBox.classList.add('lit');
-        lastInterimText=''; // reset so next interim fires fresh
-        interimCooldown=false;
-        var mySeq=++seq;
-        callAPI(t, mySeq);
-
+        // isFinal = imam paused / finished a phrase. Translate immediately.
+        translate(t);
       } else {
-        // Interim — show in heard box
+        // Show interim live so user sees what's being heard
         heardBox.textContent=t;
         heardBox.classList.add('lit');
-
-        // SPECULATIVE: if interim is long enough and we haven't fired recently,
-        // start a translation call NOW so it overlaps with the imam still speaking.
-        // By the time isFinal arrives, result may already be here.
-        var words=t.split(' ').length;
-        if(words>=4 && t!==lastInterimText && !interimCooldown){
-          lastInterimText=t;
-          interimCooldown=true;
-          // cooldown resets when isFinal fires
-          var mySeq=++seq;
-          callAPI(t, mySeq);
-        }
       }
     }
   };
@@ -305,9 +326,7 @@ function toggleListening(){
   if(!localStorage.getItem('prayer_key')){dbg('Enter API key first','err');return}
   if(!isOn){
     isOn=true;
-    seq++;
-    lastInterimText='';
-    interimCooldown=false;
+    activeCall++;
     micBtn.className='mic-btn on';
     statusEl.className='status on';
     statusEl.textContent='Listening...';
@@ -316,7 +335,7 @@ function toggleListening(){
     startRecog();
   } else {
     isOn=false;
-    seq++;
+    activeCall++;
     if(recog){recog.onend=null;recog.stop();recog=null}
     micBtn.className='mic-btn';
     statusEl.className='status';
