@@ -8,10 +8,9 @@
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --gold:#c9a96e;--gold-dim:#7a6040;--bg:#080c18;
-  --surface:#0f1623;--border:#1a2a40;--border-mid:#2a3f60;
-  --text:#e8dfc8;--text-dim:#6b7a9a;--green:#2a9060;
-  --green-dim:#2a6040;--red:#a04040;
+  --gold:#c9a96e;--bg:#080c18;--surface:#0f1623;--border:#1a2a40;
+  --border-mid:#2a3f60;--text:#e8dfc8;--text-dim:#6b7a9a;
+  --green:#2a9060;--green-dim:#2a6040;--red:#a04040;
 }
 body{background:var(--bg);font-family:'Lato',sans-serif;color:var(--text);min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:1.5rem 1rem 2rem}
 .header{text-align:center;margin-bottom:1.25rem}
@@ -43,9 +42,9 @@ body{background:var(--bg);font-family:'Lato',sans-serif;color:var(--text);min-he
 .badge-row{min-height:22px;margin-bottom:.75rem;align-self:flex-start;display:flex;gap:8px;align-items:center}
 .surah-badge{background:#1a2a40;border:1px solid #2a4060;border-radius:6px;padding:3px 10px;font-size:12px;color:var(--gold);font-weight:700}
 .dua-label{font-size:11px;color:#3a4a6a;font-style:italic}
-#mainText{font-size:27px;font-weight:300;color:var(--text);line-height:1.75;text-align:center;width:100%;transition:opacity .08s ease}
+#mainText{font-size:27px;font-weight:300;color:var(--text);line-height:1.75;text-align:center;width:100%;transition:opacity .06s ease}
 #mainText.fade{opacity:0}
-.flash{position:absolute;inset:0;background:var(--gold);border-radius:14px;opacity:0;transition:opacity .12s ease;pointer-events:none;z-index:0}
+.flash{position:absolute;inset:0;background:var(--gold);border-radius:14px;opacity:0;transition:opacity .1s ease;pointer-events:none;z-index:0}
 .flash.on{opacity:.12}
 .card>:not(.flash){position:relative;z-index:1}
 .placeholder{font-size:15px;color:#2a3a5a;text-align:center;line-height:1.9}
@@ -129,7 +128,16 @@ select{background:var(--surface);border:1px solid var(--border);color:var(--text
 <div class="disclaimer">AI translation for understanding only. Verify with a qualified scholar.</div>
 
 <script>
-var isOn=false,recog=null,mode='ayah',seq=0;
+var isOn=false, recog=null, mode='ayah';
+
+// seq: every translate call gets a number. Only the highest one can update the screen.
+var seq=0;
+
+// Speculative translate: we start a call on interim results so by the time
+// isFinal arrives, the translation may already be done or nearly done.
+// interimSeq tracks the last interim call so we don't spam the API.
+var lastInterimText='';
+var interimCooldown=false;
 
 var micBtn=document.getElementById('micBtn');
 var statusEl=document.getElementById('status');
@@ -151,23 +159,22 @@ function saveKey(){
   document.getElementById('setup').classList.add('hidden');
   dbg('');
 }
-
 function changeKey(){
   localStorage.removeItem('prayer_key');
   document.getElementById('keyInput').value='';
   document.getElementById('setup').classList.remove('hidden');
   if(isOn) toggleListening();
 }
-
 function setMode(m){
   mode=m;
   document.getElementById('modeAyah').classList.toggle('active',m==='ayah');
   document.getElementById('modeDua').classList.toggle('active',m==='dua');
   clearDisplay();
 }
-
 function clearDisplay(){
   seq++;
+  lastInterimText='';
+  interimCooldown=false;
   mainText.className='';
   mainText.innerHTML='<div class="placeholder">Tap mic and hold near the imam.</div>';
   surahBadge.style.display='none';
@@ -183,7 +190,7 @@ function showResult(translation,label,surah,ayah){
   mainText.classList.add('fade');
   setTimeout(function(){
     mainText.textContent=translation;
-    mainText.style.fontSize=translation.length>120?'20px':translation.length>70?'23px':'27px';
+    mainText.style.fontSize=translation.length>120?'19px':translation.length>70?'23px':'27px';
     mainText.classList.remove('fade');
     if(mode==='ayah'&&surah){
       surahBadge.textContent=surah+(ayah?' · '+ayah:'');
@@ -192,21 +199,17 @@ function showResult(translation,label,surah,ayah){
       surahBadge.style.display='none';
     }
     duaLabel.textContent=label||'';
-  },80);
+  },60);
 }
 
-var SYS_DUA='You are an expert Islamic scholar.\nTranslate the Arabic phrase from Witr prayer into the requested language.\nOutput ONLY raw JSON, no markdown:\n{"translation":"<one complete natural sentence>","label":"<Praise|Supplication|Glorification|Salawat|Qunoot>"}\nRules: one complete sentence only. Never a fragment. Never "X / Y" alternatives. Commit to one best translation.';
+var SYS_DUA='You are an expert Islamic scholar. Translate this Arabic Witr/Qunoot phrase into the target language.\nOutput ONLY raw JSON: {"translation":"<one complete natural sentence>","label":"<Praise|Supplication|Glorification|Salawat|Qunoot>"}\nNever fragments. Never X/Y alternatives. One confident sentence.';
 
-var SYS_AYAH='You are an expert Quran translator.\nTranslate the Arabic Quran phrase into the requested language.\nOutput ONLY raw JSON, no markdown:\n{"translation":"<one complete natural sentence>","surah":"<English name or empty>","ayah":"<number or empty>"}\nRules: one complete sentence only. Never a fragment. Never "X / Y" alternatives. Commit to one best translation.';
+var SYS_AYAH='You are an expert Quran translator. Translate this Arabic recitation into the target language.\nOutput ONLY raw JSON: {"translation":"<one complete natural sentence>","surah":"<English name or empty>","ayah":"<number or empty>"}\nNever fragments. Never X/Y alternatives. One confident sentence.';
 
-function translate(arabic){
+function callAPI(arabic, mySeq){
   var key=localStorage.getItem('prayer_key');
-  if(!key||!arabic||arabic.trim().length<2) return;
+  if(!key) return;
   var lang=document.getElementById('langSelect').value;
-  var mySeq=++seq;
-
-  heardBox.textContent=arabic;
-  heardBox.classList.add('lit');
 
   fetch('https://api.anthropic.com/v1/messages',{
     method:'POST',
@@ -225,12 +228,13 @@ function translate(arabic){
   })
   .then(function(r){return r.json()})
   .then(function(data){
+    // Only update screen if nothing newer has come in
     if(mySeq!==seq) return;
     var raw=data.content.map(function(i){return i.text||''}).join('').replace(/```json|```/g,'').trim();
     try{
       var p=JSON.parse(raw);
-      if(p&&p.translation) showResult(p.translation.trim(),p.label||'',p.surah||'',p.ayah||'');
-    }catch(e){dbg('Parse err','err')}
+      if(p&&p.translation&&p.translation.trim()) showResult(p.translation.trim(),p.label||'',p.surah||'',p.ayah||'');
+    }catch(e){dbg('parse err','err')}
   })
   .catch(function(e){if(mySeq===seq)dbg(e.message,'err')});
 }
@@ -248,11 +252,33 @@ function startRecog(){
     for(var i=e.resultIndex;i<e.results.length;i++){
       var t=e.results[i][0].transcript.trim();
       if(!t) continue;
+
       if(e.results[i].isFinal){
-        translate(t);
-      } else {
+        // Final result — this is the clean committed text.
+        // Always fire a fresh call with the confirmed text.
         heardBox.textContent=t;
         heardBox.classList.add('lit');
+        lastInterimText=''; // reset so next interim fires fresh
+        interimCooldown=false;
+        var mySeq=++seq;
+        callAPI(t, mySeq);
+
+      } else {
+        // Interim — show in heard box
+        heardBox.textContent=t;
+        heardBox.classList.add('lit');
+
+        // SPECULATIVE: if interim is long enough and we haven't fired recently,
+        // start a translation call NOW so it overlaps with the imam still speaking.
+        // By the time isFinal arrives, result may already be here.
+        var words=t.split(' ').length;
+        if(words>=4 && t!==lastInterimText && !interimCooldown){
+          lastInterimText=t;
+          interimCooldown=true;
+          // cooldown resets when isFinal fires
+          var mySeq=++seq;
+          callAPI(t, mySeq);
+        }
       }
     }
   };
@@ -280,6 +306,8 @@ function toggleListening(){
   if(!isOn){
     isOn=true;
     seq++;
+    lastInterimText='';
+    interimCooldown=false;
     micBtn.className='mic-btn on';
     statusEl.className='status on';
     statusEl.textContent='Listening...';
