@@ -5,98 +5,95 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Prayer Translator</title>
 
-<link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Amiri&family=Lato&display=swap" rel="stylesheet">
 
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:#080c18;font-family:'Lato',sans-serif;color:#e8dfc8;display:flex;flex-direction:column;align-items:center;padding:1.5rem}
-
-.header{text-align:center;margin-bottom:1rem}
-.arabic-title{font-family:'Amiri',serif;font-size:26px;color:#c9a96e}
-.english-title{font-size:11px;color:#4a5a7a;letter-spacing:.15em;text-transform:uppercase}
-
-.mic-btn{
-width:90px;height:90px;border-radius:50%;
-background:#111827;border:2px solid #2d3a5e;
-display:flex;align-items:center;justify-content:center;
-cursor:pointer;margin:15px 0;transition:.3s
+body{
+background:#080c18;color:#e8dfc8;
+font-family:Lato;text-align:center;
+padding:20px
 }
-.mic-btn.listening{
-border-color:#2a6040;background:#0d1f14;
-animation:pulse 1.5s infinite
+.mic{
+font-size:40px;
+margin:20px;
+cursor:pointer
 }
-@keyframes pulse{
-0%,100%{box-shadow:0 0 0 0 rgba(42,96,64,.5)}
-50%{box-shadow:0 0 0 14px rgba(42,96,64,0)}
-}
-
-.status{font-size:12px;color:#6b7a9a;text-transform:uppercase}
-.status.listening{color:#2a9060}
-
 .heard{
-width:100%;max-width:500px;
-background:#0a0f1a;border:1px solid #1a2540;
-padding:10px;margin-bottom:10px;
-font-family:'Amiri',serif;
-direction:rtl;text-align:right
+font-family:Amiri;
+direction:rtl;
+margin:10px;
+color:#aaa
 }
-
-.card{
-width:100%;max-width:500px;
-background:#0f1623;border-radius:12px;
-padding:30px;text-align:center;
-min-height:160px
+.text{
+font-size:26px;
+margin-top:20px
 }
-
-#text{font-size:26px;line-height:1.6}
-
-select{
-margin-top:10px;
-background:#0f1623;color:#ccc;
-padding:6px;border-radius:6px
-}
-
 </style>
 </head>
 
 <body>
 
-<div class="header">
-<div class="arabic-title">مترجم الصلاة</div>
-<div class="english-title">Live Prayer Translator</div>
-</div>
+<h2>مترجم الصلاة</h2>
 
-<button class="mic-btn" id="mic" onclick="toggleMic()">🎤</button>
-<div class="status" id="status">Tap to start</div>
+<div class="mic" onclick="toggle()">🎤</div>
+<div id="status">Tap mic</div>
 
 <div class="heard" id="heard"></div>
-
-<div class="card">
-<div id="text">Waiting...</div>
-</div>
-
-<select id="lang">
-<option>English</option>
-<option>Urdu</option>
-<option>French</option>
-<option>Spanish</option>
-</select>
+<div class="text" id="text">Waiting...</div>
 
 <script>
 
 let listening=false;
 let recognition;
-let silenceTimer;
-let lastPhrase='';
-let queue=[];
-let processing=false;
+let timer;
+let last="";
 
-const mic=document.getElementById("mic");
-const statusEl=document.getElementById("status");
-const heard=document.getElementById("heard");
-const text=document.getElementById("text");
+// 🔥 COMMON DUAS DATABASE (FAST + ACCURATE)
+const duas = [
+{
+match:["اللهم اهدنا","اهدنا فيمن هديت"],
+translation:"O Allah, guide us among those You have guided."
+},
+{
+match:["وعافنا فيمن عافيت"],
+translation:"Grant us well-being among those You have granted well-being."
+},
+{
+match:["وتولنا فيمن توليت"],
+translation:"Take us under Your care among those You have taken under Your care."
+},
+{
+match:["وبارك لنا فيما أعطيت"],
+translation:"Bless us in what You have given us."
+},
+{
+match:["وقنا شر ما قضيت"],
+translation:"Protect us from the evil of what You have decreed."
+},
+{
+match:["إنك تقضي ولا يقضى عليك"],
+translation:"Indeed, You decree and none can decree over You."
+},
+{
+match:["إنه لا يذل من واليت"],
+translation:"None whom You support will ever be humiliated."
+},
+{
+match:["ولا يعز من عاديت"],
+translation:"None whom You oppose will ever be honored."
+},
+{
+match:["تباركت ربنا وتعاليت"],
+translation:"Blessed are You, our Lord, and Exalted."
+},
+{
+match:["الله أكبر"],
+translation:"Allah is the Greatest."
+}
+];
 
-function toggleMic(){
+// 🎤 START/STOP
+function toggle(){
 if(!listening){
 start();
 }else{
@@ -116,14 +113,14 @@ for(let i=e.resultIndex;i<e.results.length;i++){
 let t=e.results[i][0].transcript.trim();
 
 if(e.results[i].isFinal){
-handlePhrase(t);
+handle(t);
 }else{
-heard.textContent=t;
+document.getElementById("heard").textContent=t;
 
-clearTimeout(silenceTimer);
-silenceTimer=setTimeout(()=>{
-if(t.length>6){
-handlePhrase(t);
+clearTimeout(timer);
+timer=setTimeout(()=>{
+if(t.length>5){
+handle(t);
 }
 },900);
 }
@@ -132,93 +129,55 @@ handlePhrase(t);
 
 recognition.start();
 listening=true;
-mic.classList.add("listening");
-statusEl.textContent="Listening...";
-statusEl.classList.add("listening");
+document.getElementById("status").textContent="Listening...";
 }
 
 function stop(){
 recognition.stop();
 listening=false;
-mic.classList.remove("listening");
-statusEl.textContent="Tap to start";
-statusEl.classList.remove("listening");
+document.getElementById("status").textContent="Tap mic";
 }
 
-function handlePhrase(t){
-if(t.length<6) return;
-if(t===lastPhrase) return;
-if(t.startsWith(lastPhrase)) return;
+// 🧠 MATCH LOGIC
+function handle(t){
 
-lastPhrase=t;
-heard.textContent=t;
+if(t.length<5) return;
+if(t===last) return;
 
-queue.push(t);
-processQueue();
+last=t;
+
+document.getElementById("heard").textContent=t;
+
+let found=null;
+
+// try match known duas
+for(let d of duas){
+for(let m of d.match){
+if(t.includes(m)){
+found=d.translation;
+break;
+}
+}
+if(found) break;
 }
 
-async function processQueue(){
-if(processing) return;
-processing=true;
+// fallback
+if(!found){
+found="Listening...";
+}
 
-while(queue.length){
-let phrase=queue.shift();
-let result=await translate(phrase);
+show(found);
+}
 
-if(result){
-text.style.opacity=0;
+// 🎬 DISPLAY
+function show(txt){
+let el=document.getElementById("text");
+el.style.opacity=0;
+
 setTimeout(()=>{
-text.textContent=result;
-text.style.opacity=1;
-},150);
-await new Promise(r=>setTimeout(r,2500));
-}
-}
-
-processing=false;
-}
-
-async function translate(arabic){
-
-let lang=document.getElementById("lang").value;
-
-let prompt=`Translate this Arabic dua into ONE natural ${lang} sentence.
-Rules:
-- Full sentence only
-- No multiple meanings
-- No slashes
-- Smooth and clear
-
-Arabic: "${arabic}"
-
-Respond ONLY:
-{"translation":"..."}`;
-
-try{
-let res=await fetch("https://api.anthropic.com/v1/messages",{
-method:"POST",
-headers:{
-"Content-Type":"application/json",
-"x-api-key":localStorage.getItem("prayer_key"),
-"anthropic-version":"2023-06-01",
-"anthropic-dangerous-direct-browser-access":"true"
-},
-body:JSON.stringify({
-model:"claude-haiku-4-5-20251001",
-max_tokens:150,
-messages:[{role:"user",content:prompt}]
-})
-});
-
-let data=await res.json();
-let raw=data.content[0].text;
-
-return JSON.parse(raw).translation;
-
-}catch(e){
-return "Error";
-}
-
+el.textContent=txt;
+el.style.opacity=1;
+},100);
 }
 
 </script>
