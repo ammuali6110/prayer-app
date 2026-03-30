@@ -75,7 +75,7 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
   </button>
 </div>
 
-<div class="mic-section">
+<div class="mic-section" style="flex-direction:row;gap:16px;align-items:center;">
   <button class="mic-btn" id="micBtn" onclick="toggleListening()">
     <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
       <rect x="9" y="2" width="6" height="11" rx="3" fill="#c9a96e"/>
@@ -84,8 +84,9 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
       <line x1="9" y1="22" x2="15" y2="22" stroke="#c9a96e" stroke-width="1.5" stroke-linecap="round"/>
     </svg>
   </button>
-  <div class="status" id="status">Tap microphone to begin</div>
 </div>
+<button id="stopBtn" onclick="stopTranslating()" style="display:none;background:#1a2a40;border:1px solid #c9a96e;color:#c9a96e;border-radius:8px;padding:8px 16px;font-size:13px;font-family:Lato,sans-serif;cursor:pointer;">Stop</button>
+<div class="status" id="status">Tap microphone to begin</div>
 
 <div class="heard-box" id="heardBox" style="display:none"></div>
 
@@ -107,26 +108,18 @@ select { background: #0f1623; border: 1px solid #1a2a40; color: #6b7a9a; font-si
     <option value="Urdu">Urdu</option>
     <option value="French">French</option>
     <option value="Turkish">Turkish</option>
-    <option value="Spanish">Spanish</option>
-    <option value="Indonesian">Indonesian</option>
-    <option value="Bengali">Bengali</option>
-  </select>
-</div>
-
-<div class="debug" id="debug"></div>
-<div class="disclaimer">AI translation for understanding only. Verify with a qualified scholar.</div>
-
-<script>
+    <option<script>
 let isListening = false;
 let recognition = null;
 let mode = 'ayah';
 let phraseQueue = [];
 let processingQueue = false;
 let lastFired = '';
+let silenceTimer = null;
+let currentInterim = '';
 
 const micBtn = document.getElementById('micBtn');
 const statusEl = document.getElementById('status');
-const heardBox = document.getElementById('heardBox');
 const mainText = document.getElementById('mainText');
 const surahBadge = document.getElementById('surahBadge');
 const duaLabel = document.getElementById('duaLabel');
@@ -171,6 +164,8 @@ function clearDisplay() {
   phraseQueue = [];
   processingQueue = false;
   lastFired = '';
+  currentInterim = '';
+  clearTimeout(silenceTimer);
   dbg('');
 }
 
@@ -201,24 +196,16 @@ async function splitAndTranslate(arabic) {
   const lang = document.getElementById('langSelect').value;
 
   const prompt = mode === 'dua'
-    ? `You are an expert Islamic scholar translating Witr prayer duas for someone following along during prayer. You know all madhabs and all regional imam styles.
-
-The Arabic below was heard from an imam. It may contain multiple phrases said one after another between breaths.
-
-YOUR RULES:
-1. Split into individual phrases — one per natural breath/pause the imam takes
-2. Correct any speech recognition errors
-3. Translate each phrase as one complete natural ${lang} sentence
-4. Use present tense: "O Allah, guide us" not "O Allah, who guides"
-5. Pick ONE word — never use slashes like give/giving
-6. Short enough to read in 3 seconds
+    ? `Expert Islamic scholar translating Witr duas. Know all madhabs and regional styles.
 
 Arabic: "${arabic}"
 
-Respond ONLY raw JSON array, no markdown:
-[{"arabic":"<corrected>","translation":"<complete ${lang} sentence>","label":"<Praise or Dua or Qunoot>"}]`
+Split into individual units — each phrase an imam says between breaths. For example "Allahumma ihdina fi man hadayt wa aafina fi man aafayt" = TWO units. Translate each as one clean ${lang} sentence. Present tense. One word per concept.
+
+Respond ONLY raw JSON array:
+[{"arabic":"<phrase>","translation":"<${lang}>","label":"<Praise or Dua or Qunoot>"}]`
     : `Quran translator. Arabic: "${arabic}"
-Respond ONLY raw JSON array no markdown:
+Respond ONLY raw JSON array:
 [{"arabic":"<corrected>","translation":"<${lang}>","surah":"<name or empty>","ayah":"<number or empty>"}]`;
 
   try {
@@ -272,6 +259,8 @@ function fire(text) {
   if (!t || t.length < 2) return;
   if (t === lastFired) return;
   lastFired = t;
+  currentInterim = '';
+  clearTimeout(silenceTimer);
   phraseQueue = [t];
   processQueue();
 }
@@ -282,14 +271,24 @@ function startRecognition() {
   recognition = new SR();
   recognition.lang = 'ar-SA';
   recognition.continuous = true;
-  recognition.interimResults = false;
+  recognition.interimResults = true;
   recognition.maxAlternatives = 1;
 
   recognition.onresult = (event) => {
     for (let i = event.resultIndex; i < event.results.length; i++) {
+      const t = event.results[i][0].transcript.trim();
       if (event.results[i].isFinal) {
-        const t = event.results[i][0].transcript.trim();
-        if (t.length > 1) fire(t);
+        clearTimeout(silenceTimer);
+        currentInterim = '';
+        if (t.length > 1) { lastFired = ''; fire(t); }
+      } else {
+        currentInterim = t;
+        clearTimeout(silenceTimer);
+        silenceTimer = setTimeout(() => {
+          if (currentInterim && currentInterim.length > 4) {
+            fire(currentInterim);
+          }
+        }, 600);
       }
     }
   };
@@ -313,12 +312,14 @@ function toggleListening() {
     phraseQueue = [];
     processingQueue = false;
     lastFired = '';
+    currentInterim = '';
     micBtn.className = 'mic-btn listening';
     statusEl.className = 'status listening';
     statusEl.textContent = 'Listening...';
     startRecognition();
   } else {
     isListening = false;
+    clearTimeout(silenceTimer);
     phraseQueue = [];
     if (recognition) { recognition.onend = null; recognition.stop(); recognition = null; }
     micBtn.className = 'mic-btn';
