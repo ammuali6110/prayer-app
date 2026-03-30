@@ -46,9 +46,9 @@ body { background: var(--bg); font-family: 'Lato', sans-serif; color: var(--text
 .badge-row { min-height: 22px; margin-bottom: 0.75rem; align-self: flex-start; display: flex; gap: 8px; align-items: center; }
 .surah-badge { background: #1a2a40; border: 1px solid #2a4060; border-radius: 6px; padding: 3px 10px; font-size: 12px; color: var(--gold); font-weight: 700; }
 .dua-label { font-size: 11px; color: #3a4a6a; font-style: italic; }
-#mainText { font-size: 27px; font-weight: 300; color: var(--text); line-height: 1.75; text-align: center; width: 100%; transition: opacity 0.15s ease; }
+#mainText { font-size: 27px; font-weight: 300; color: var(--text); line-height: 1.75; text-align: center; width: 100%; transition: opacity 0.1s ease; }
 #mainText.fading { opacity: 0; }
-.card-flash { position: absolute; inset: 0; background: var(--gold); border-radius: 14px; opacity: 0; transition: opacity 0.15s ease; pointer-events: none; z-index: 0; }
+.card-flash { position: absolute; inset: 0; background: var(--gold); border-radius: 14px; opacity: 0; transition: opacity 0.12s ease; pointer-events: none; z-index: 0; }
 .card-flash.on { opacity: 0.12; }
 .card > :not(.card-flash) { position: relative; z-index: 1; }
 .placeholder { font-size: 15px; color: #2a3a5a; text-align: center; line-height: 1.9; }
@@ -136,13 +136,14 @@ let isListening  = false;
 let recognition  = null;
 let mode         = 'ayah';
 
-// Speech buffers
-let accumulated  = '';   // finals collected since last fire
-let interim      = '';
-let silenceTimer = null;
-let lastFired    = '';
+// Each final result fires its own independent translation call.
+// We track a "generation" counter so only the latest call updates the screen.
+let generation   = 0;
 
-const SILENCE_MS = 700;  // fire 700ms after imam stops speaking
+// Accumulate finals within one breath group, reset on long silence
+let breathBuffer = '';
+let breathTimer  = null;
+const BREATH_MS  = 1800; // if silent this long, next speech is a new phrase
 
 const micBtn     = document.getElementById('micBtn');
 const statusEl   = document.getElementById('status');
@@ -158,7 +159,6 @@ function dbg(msg, type) {
   debugEl.className = 'debug' + (type ? ' ' + type : '');
 }
 
-// Key setup
 if (localStorage.getItem('prayer_key')) document.getElementById('setup').classList.add('hidden');
 
 function saveKey() {
@@ -181,8 +181,9 @@ function setMode(m) {
   clearDisplay();
 }
 function clearDisplay() {
-  accumulated = ''; interim = ''; lastFired = '';
-  clearTimeout(silenceTimer);
+  generation++;
+  breathBuffer = '';
+  clearTimeout(breathTimer);
   mainText.style.opacity = '1';
   mainText.innerHTML = '<div class="placeholder">Tap mic and hold near the imam.</div>';
   surahBadge.style.display = 'none';
@@ -192,61 +193,44 @@ function clearDisplay() {
   dbg('');
 }
 
-// Instantly replace translation on card
 function showTranslation(translation, label, surah, ayah) {
-  // flash
   cardFlash.classList.add('on');
   setTimeout(function() { cardFlash.classList.remove('on'); }, 300);
-
-  // fade out → swap → fade in
   mainText.classList.add('fading');
   setTimeout(function() {
     mainText.textContent = translation;
     mainText.style.fontSize = translation.length > 120 ? '20px' : translation.length > 70 ? '23px' : '27px';
     mainText.classList.remove('fading');
-
     if (mode === 'ayah' && surah) {
-      surahBadge.textContent = surah + (ayah ? ' · ' + ayah : '');
+      surahBadge.textContent = surah + (ayah ? ' \u00b7 ' + ayah : '');
       surahBadge.style.display = '';
     } else {
       surahBadge.style.display = 'none';
     }
     duaLabel.textContent = label || '';
-  }, 150);
+  }, 100);
 }
 
-// The system prompts — strict, no alternatives, single confident translation
 const SYSTEM = {
-  dua: `You are an expert Islamic scholar. You receive one Arabic phrase said by an imam in Witr prayer (Qunoot or dua). Translate it into one complete, natural sentence. 
+  dua: `You are an expert Islamic scholar. Translate ONE Arabic phrase from Witr prayer (Qunoot/dua) into natural fluent English (or requested language).
+Output ONLY raw JSON: {"translation":"...","label":"..."}
+Rules: ONE complete natural sentence. No fragments. No "X / Y" alternatives. Commit to the single best translation.
+label = one word only: Praise OR Supplication OR Glorification OR Salawat OR Qunoot`,
 
-STRICT RULES:
-- Output ONLY raw JSON: {"translation":"...","label":"..."}
-- ONE complete sentence translation. Never fragments. Never slash alternatives like "X / Y".
-- Pick the single best natural translation and commit to it.
-- label = one word: Praise, Supplication, Glorification, Salawat, or Qunoot`,
-
-  ayah: `You are an expert Quran translator. You receive one Arabic phrase recited by an imam. Translate it into one complete, natural sentence.
-
-STRICT RULES:
-- Output ONLY raw JSON: {"translation":"...","surah":"...","ayah":"..."}
-- ONE complete sentence translation. Never fragments. Never slash alternatives like "X / Y".  
-- Pick the single best natural translation and commit to it.
-- surah = English name if known, else empty string. ayah = number if known, else empty string.`
+  ayah: `You are an expert Quran translator. Translate ONE Arabic Quran phrase into natural fluent English (or requested language).
+Output ONLY raw JSON: {"translation":"...","surah":"...","ayah":"..."}
+Rules: ONE complete natural sentence. No fragments. No "X / Y" alternatives. Commit to the single best translation.
+surah = English name if known, else "". ayah = number if known, else "".`
 };
 
-async function translate(arabic) {
+async function translate(arabic, myGen) {
   const key = localStorage.getItem('prayer_key');
   if (!key || !arabic || arabic.trim().length < 3) return;
   const lang = document.getElementById('langSelect').value;
 
-  micBtn.className = 'mic-btn translating';
-  statusEl.className = 'status translating';
-  statusEl.textContent = 'Translating...';
-  dbg('Translating...');
-
   const prompt = mode === 'dua'
-    ? 'Translate this single Arabic phrase from Witr prayer into ' + lang + '.\nReturn ONLY: {"translation":"<one complete ' + lang + ' sentence>","label":"<Praise|Supplication|Glorification|Salawat|Qunoot>"}\n\nArabic: ' + arabic
-    : 'Translate this single Quran phrase into ' + lang + '.\nReturn ONLY: {"translation":"<one complete ' + lang + ' sentence>","surah":"<English name or empty>","ayah":"<number or empty>"}\n\nArabic: ' + arabic;
+    ? 'Translate into ' + lang + '. Return ONLY JSON {"translation":"<complete sentence>","label":"<Praise|Supplication|Glorification|Salawat|Qunoot>"}.\n\nArabic: ' + arabic
+    : 'Translate into ' + lang + '. Return ONLY JSON {"translation":"<complete sentence>","surah":"<name or empty>","ayah":"<number or empty>"}.\n\nArabic: ' + arabic;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -259,11 +243,14 @@ async function translate(arabic) {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 300,
+        max_tokens: 200,
         system: mode === 'dua' ? SYSTEM.dua : SYSTEM.ayah,
         messages: [{ role: 'user', content: prompt }]
       })
     });
+
+    // If a newer phrase came in while we were waiting, discard this result
+    if (myGen !== generation) return;
 
     if (!res.ok) {
       const e = await res.json().catch(function() { return {}; });
@@ -272,8 +259,9 @@ async function translate(arabic) {
     }
 
     const data = await res.json();
-    const raw = data.content.map(function(i) { return i.text || ''; }).join('').replace(/```json|```/g, '').trim();
+    if (myGen !== generation) return; // check again after await
 
+    const raw = data.content.map(function(i) { return i.text || ''; }).join('').replace(/```json|```/g, '').trim();
     let p;
     try { p = JSON.parse(raw); } catch(e) { dbg('Parse error', 'err'); return; }
 
@@ -281,32 +269,44 @@ async function translate(arabic) {
       showTranslation(p.translation.trim(), p.label || '', p.surah || '', p.ayah || '');
       dbg('');
     }
-
   } catch(e) {
-    dbg('Error: ' + e.message, 'err');
-  } finally {
-    if (isListening) {
+    if (myGen === generation) dbg('Error: ' + e.message, 'err');
+  }
+}
+
+function onFinalResult(text) {
+  if (!text || text.trim().length < 2) return;
+
+  // Reset breath timer — if silence follows, next speech is a new breath group
+  clearTimeout(breathTimer);
+  breathBuffer += (breathBuffer ? ' ' : '') + text.trim();
+  breathTimer = setTimeout(function() { breathBuffer = ''; }, BREATH_MS);
+
+  // Bump generation — any in-flight older call will see myGen !== generation and discard itself
+  generation++;
+  var myGen = generation;
+
+  // Show what we heard immediately
+  heardBox.textContent = breathBuffer;
+  heardBox.classList.add('active');
+
+  // Set mic to translating state
+  micBtn.className = 'mic-btn translating';
+  statusEl.className = 'status translating';
+  statusEl.textContent = 'Translating...';
+
+  // Fire translation immediately — don't wait
+  translate(breathBuffer, myGen).then(function() {
+    if (isListening && myGen === generation) {
       micBtn.className = 'mic-btn listening';
       statusEl.className = 'status listening';
       statusEl.textContent = 'Listening...';
     }
-  }
-}
-
-// Fire when silence detected — send whatever the imam just said
-function fire() {
-  const text = (accumulated + ' ' + interim).trim();
-  accumulated = '';
-  interim = '';
-  if (!text || text.length < 3 || text === lastFired) return;
-  lastFired = text;
-  heardBox.textContent = text;
-  heardBox.classList.add('active');
-  translate(text);
+  });
 }
 
 function startRecognition() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { dbg('Use Chrome browser', 'err'); return; }
 
   recognition = new SR();
@@ -316,24 +316,19 @@ function startRecognition() {
   recognition.maxAlternatives = 1;
 
   recognition.onresult = function(event) {
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const t = event.results[i][0].transcript.trim();
+    for (var i = event.resultIndex; i < event.results.length; i++) {
+      var t = event.results[i][0].transcript.trim();
       if (!t) continue;
 
       if (event.results[i].isFinal) {
-        accumulated += (accumulated ? ' ' : '') + t;
-        interim = '';
+        // Final = committed speech, fire translation immediately
+        onFinalResult(t);
       } else {
-        interim = t;
+        // Interim = show live in heard box only, don't translate yet
+        var live = (breathBuffer ? breathBuffer + ' ' : '') + t;
+        heardBox.textContent = live;
+        heardBox.classList.add('active');
       }
-
-      // Show live in heard box
-      heardBox.textContent = (accumulated + ' ' + interim).trim();
-      heardBox.classList.add('active');
-
-      // Reset silence timer on every speech event
-      clearTimeout(silenceTimer);
-      silenceTimer = setTimeout(fire, SILENCE_MS);
     }
   };
 
@@ -360,7 +355,9 @@ function toggleListening() {
 
   if (!isListening) {
     isListening = true;
-    accumulated = ''; interim = ''; lastFired = '';
+    generation++;
+    breathBuffer = '';
+    clearTimeout(breathTimer);
     micBtn.className = 'mic-btn listening';
     statusEl.className = 'status listening';
     statusEl.textContent = 'Listening...';
@@ -369,7 +366,8 @@ function toggleListening() {
     startRecognition();
   } else {
     isListening = false;
-    clearTimeout(silenceTimer);
+    generation++;
+    clearTimeout(breathTimer);
     if (recognition) { recognition.onend = null; recognition.stop(); recognition = null; }
     micBtn.className = 'mic-btn';
     statusEl.className = 'status';
