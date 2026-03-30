@@ -44,7 +44,7 @@ body{background:var(--bg);font-family:'Lato',sans-serif;color:var(--text);min-he
 .dua-label{font-size:11px;color:#3a4a6a;font-style:italic}
 #mainText{font-size:27px;font-weight:300;color:var(--text);line-height:1.75;text-align:center;width:100%}
 .flash{position:absolute;inset:0;background:var(--gold);border-radius:14px;opacity:0;transition:opacity .1s ease;pointer-events:none;z-index:0}
-.flash.on{opacity:.12}
+.flash.on{opacity:.13}
 .card>:not(.flash){position:relative;z-index:1}
 .placeholder{font-size:15px;color:#2a3a5a;text-align:center;line-height:1.9}
 .bottom-row{width:100%;max-width:520px;display:flex;justify-content:space-between;align-items:center;margin-top:.75rem}
@@ -128,6 +128,7 @@ select{background:var(--surface);border:1px solid var(--border);color:var(--text
 
 <script>
 var isOn=false, recog=null, mode='ayah', activeCall=0;
+var displayQueue=[], isDisplaying=false;
 
 var micBtn=document.getElementById('micBtn');
 var statusEl=document.getElementById('status');
@@ -139,15 +140,13 @@ var debugEl=document.getElementById('debug');
 var flashEl=document.getElementById('flash');
 
 function dbg(m,t){debugEl.textContent=m;debugEl.className='debug'+(t?' '+t:'')}
-
 if(localStorage.getItem('prayer_key')) document.getElementById('setup').classList.add('hidden');
 
 function saveKey(){
   var v=document.getElementById('keyInput').value.trim();
   if(!v.startsWith('sk-ant-')){dbg('Key must start with sk-ant-','err');return}
   localStorage.setItem('prayer_key',v);
-  document.getElementById('setup').classList.add('hidden');
-  dbg('');
+  document.getElementById('setup').classList.add('hidden');dbg('');
 }
 function changeKey(){
   localStorage.removeItem('prayer_key');
@@ -159,40 +158,126 @@ function setMode(m){
   mode=m;
   document.getElementById('modeAyah').classList.toggle('active',m==='ayah');
   document.getElementById('modeDua').classList.toggle('active',m==='dua');
-  clearDisplay();
+  clearAll();
 }
-function clearDisplay(){
-  activeCall++;
+function clearAll(){
+  activeCall++;displayQueue=[];isDisplaying=false;
   mainText.innerHTML='<div class="placeholder">Tap mic and hold near the imam.</div>';
-  surahBadge.style.display='none';
-  duaLabel.textContent='';
-  heardBox.textContent='';
-  heardBox.className='heard-box';
-  dbg('');
+  surahBadge.style.display='none';duaLabel.textContent='';
+  heardBox.textContent='';heardBox.className='heard-box';dbg('');
 }
 
-// Flash the card gold when new translation arrives
-function doFlash(){
-  flashEl.classList.add('on');
-  setTimeout(function(){flashEl.classList.remove('on')},300);
+// ── Islamic phrase boundary patterns ──────────────────────────────────────
+// These are the words/phrases that START a new dua or praise in Qunoot/Witr.
+// When we see these in the middle of a recognition result, we split there.
+var SPLIT_STARTERS = [
+  // Praise openers
+  'سبحانك','سبحان','الحمد لله','الحمدلله','الله أكبر','لا إله إلا الله',
+  'لا إله إلا أنت','بسم الله',
+  // Dua openers — اللهم constructions
+  'اللهم اهدنا','اللهم اهدني','اللهم عافنا','اللهم عافني',
+  'اللهم تولنا','اللهم تولني','اللهم بارك لنا','اللهم بارك لي',
+  'اللهم قنا','اللهم ارزقنا','اللهم ارزقني','اللهم اغفر لنا',
+  'اللهم اغفر لي','اللهم إنا نعوذ','اللهم إني أعوذ',
+  'اللهم إنا نسألك','اللهم إني أسألك','اللهم اجعلنا','اللهم اجعلني',
+  'اللهم ثبتنا','اللهم ثبتني','اللهم انصرنا','اللهم انصرني',
+  'اللهم أصلح','اللهم رحمتك','اللهم إنك','اللهم',
+  // Salawat
+  'اللهم صل','صلى الله','وصلى الله',
+  // Connective praise that starts new unit
+  'وله الحمد','وله الشكر','ولا حول','لا حول ولا قوة',
+  'أشهد أن','وأشهد أن',
+  // Ameen cue words — end markers
+  'آمين','أمين'
+];
+
+// Build a regex that matches any starter at a word boundary
+// We'll use it to find split points inside a long string
+function buildSplitRegex(){
+  var escaped = SPLIT_STARTERS.map(function(s){
+    return s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  });
+  // Sort longest first so longer matches win
+  escaped.sort(function(a,b){return b.length-a.length});
+  return new RegExp('(?:^|\\s)('+escaped.join('|')+')','g');
+}
+var SPLIT_RE = buildSplitRegex();
+
+function splitIntoPhrases(text){
+  text=text.trim();
+  if(!text) return [];
+
+  // Find all positions where a starter word begins
+  var positions=[];
+  var m;
+  SPLIT_RE.lastIndex=0;
+  while((m=SPLIT_RE.exec(text))!==null){
+    // m.index is where the space before the word is; m.index+m[0].indexOf(m[1]) is the word
+    var wordStart=m.index+(m[0].length-m[1].length);
+    if(wordStart>0) positions.push(wordStart);
+  }
+
+  if(positions.length===0) return [text];
+
+  var phrases=[];
+  var last=0;
+  for(var i=0;i<positions.length;i++){
+    var chunk=text.slice(last,positions[i]).trim();
+    if(chunk.length>1) phrases.push(chunk);
+    last=positions[i];
+  }
+  var final=text.slice(last).trim();
+  if(final.length>1) phrases.push(final);
+
+  return phrases.length>0 ? phrases : [text];
 }
 
-var SYS_DUA='Expert Islamic scholar. Translate the Arabic Witr/Qunoot phrase to the target language.\nReply with ONLY this JSON (no markdown): {"t":"<full sentence>","l":"<Praise|Supplication|Glorification|Salawat|Qunoot>"}\nOne complete sentence. No fragments. No alternatives.';
-var SYS_AYAH='Expert Quran translator. Translate the Arabic recitation to the target language.\nReply with ONLY this JSON (no markdown): {"t":"<full sentence>","s":"<surah English name or empty>","a":"<ayah number or empty>"}\nOne complete sentence. No fragments. No alternatives.';
+// ── Display queue — show one phrase at a time, replace on next ────────────
+function enqueueAndDisplay(phrases){
+  for(var i=0;i<phrases.length;i++) displayQueue.push(phrases[i]);
+  pumpQueue();
+}
 
-// Stream the translation — first token appears in ~300ms
-function translate(arabic){
+function pumpQueue(){
+  if(isDisplaying||displayQueue.length===0) return;
+  isDisplaying=true;
+  showNextFromQueue();
+}
+
+function showNextFromQueue(){
+  if(displayQueue.length===0){isDisplaying=false;return}
+  var phrase=displayQueue.shift();
+  translateAndStream(phrase,function(){
+    // After this phrase finishes streaming, wait a moment then show next
+    // The "moment" is how long they have to read it — but we move on as soon
+    // as the next phrase is ready, so effectively it's instant replacement
+    setTimeout(showNextFromQueue, displayQueue.length>0 ? 200 : 0);
+  });
+}
+
+// ── Streaming translation ─────────────────────────────────────────────────
+var SYS_DUA=[
+  'You are an expert Islamic scholar translating live Witr prayer (Qunoot/duas).',
+  'Translate the single Arabic phrase to the target language.',
+  'Reply ONLY with raw JSON (no markdown): {"t":"<one complete sentence>","l":"<Praise|Supplication|Glorification|Salawat|Qunoot>"}',
+  'One complete natural sentence. No fragments. No X/Y alternatives. Commit to one translation.'
+].join('\n');
+
+var SYS_AYAH=[
+  'You are an expert Quran translator translating live recitation.',
+  'Translate the single Arabic phrase to the target language.',
+  'Reply ONLY with raw JSON (no markdown): {"t":"<one complete sentence>","s":"<surah English name or empty>","a":"<ayah number or empty>"}',
+  'One complete natural sentence. No fragments. No X/Y alternatives. Commit to one translation.'
+].join('\n');
+
+function translateAndStream(arabic, onDone){
   var key=localStorage.getItem('prayer_key');
-  if(!key||!arabic||arabic.trim().length<2) return;
+  if(!key){if(onDone)onDone();return}
   var lang=document.getElementById('langSelect').value;
-
-  // Cancel any previous call
   var myCall=++activeCall;
 
   heardBox.textContent=arabic;
   heardBox.classList.add('lit');
-
-  // Clear card immediately so user knows something new is coming
   mainText.textContent='';
   surahBadge.style.display='none';
   duaLabel.textContent='';
@@ -207,46 +292,43 @@ function translate(arabic){
     },
     body:JSON.stringify({
       model:'claude-haiku-4-5-20251001',
-      max_tokens:120,
+      max_tokens:150,
       stream:true,
       system:mode==='dua'?SYS_DUA:SYS_AYAH,
-      messages:[{role:'user',content:'Target language: '+lang+'\nArabic: '+arabic}]
+      messages:[{role:'user',content:'Language: '+lang+'\nArabic: '+arabic}]
     })
   })
   .then(function(res){
-    if(myCall!==activeCall) return;
-    if(!res.ok){dbg('API error '+res.status,'err');return}
+    if(myCall!==activeCall){if(onDone)onDone();return}
+    if(!res.ok){dbg('API '+res.status,'err');if(onDone)onDone();return}
 
     var reader=res.body.getReader();
     var decoder=new TextDecoder();
-    var buf='';       // raw SSE buffer
-    var json='';      // accumulating JSON string from stream
-    var shown=false;  // have we flashed yet
+    var buf='',json='',flashed=false;
 
     function pump(){
-      reader.read().then(function(result){
-        if(myCall!==activeCall) return;
-        if(result.done){
-          // Stream finished — parse final JSON for label/surah/ayah
+      reader.read().then(function(chunk){
+        if(myCall!==activeCall){if(onDone)onDone();return}
+        if(chunk.done){
+          // Parse complete JSON for label/surah
           try{
-            var clean=json.replace(/```json|```/g,'').trim();
-            var p=JSON.parse(clean);
-            var label=p.l||p.label||'';
-            var surah=p.s||p.surah||'';
-            var ayah=p.a||p.ayah||'';
-            if(label) duaLabel.textContent=label;
-            if(mode==='ayah'&&surah){
-              surahBadge.textContent=surah+(ayah?' · '+ayah:'');
+            var p=JSON.parse(json.replace(/```json|```/g,'').trim());
+            var lbl=p.l||p.label||'';
+            var sur=p.s||p.surah||'';
+            var ay=p.a||p.ayah||'';
+            if(lbl) duaLabel.textContent=lbl;
+            if(mode==='ayah'&&sur){
+              surahBadge.textContent=sur+(ay?' · '+ay:'');
               surahBadge.style.display='';
             }
           }catch(e){}
+          if(onDone)onDone();
           return;
         }
 
-        // Parse SSE chunks
-        buf+=decoder.decode(result.value,{stream:true});
+        buf+=decoder.decode(chunk.value,{stream:true});
         var lines=buf.split('\n');
-        buf=lines.pop(); // keep incomplete line
+        buf=lines.pop();
 
         for(var i=0;i<lines.length;i++){
           var line=lines[i].trim();
@@ -257,14 +339,12 @@ function translate(arabic){
             var evt=JSON.parse(data);
             if(evt.type==='content_block_delta'&&evt.delta&&evt.delta.text){
               json+=evt.delta.text;
-
-              // Extract the "t" value from the partial JSON as it streams in
-              // Look for "t":"..." or "translation":"..."
-              var match=json.match(/"t"\s*:\s*"((?:[^"\\]|\\.)*)"|"translation"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-              if(match){
-                var partial=(match[1]||match[2]).replace(/\\n/g,' ').replace(/\\"/g,'"').trim();
-                if(partial.length>0){
-                  if(!shown){shown=true;doFlash();}
+              // Extract streaming translation value
+              var m=json.match(/"t"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+              if(m){
+                var partial=m[1].replace(/\\"/g,'"').replace(/\\n/g,' ').trim();
+                if(partial){
+                  if(!flashed){flashed=true;flashEl.classList.add('on');setTimeout(function(){flashEl.classList.remove('on')},300)}
                   mainText.textContent=partial;
                   mainText.style.fontSize=partial.length>120?'19px':partial.length>70?'23px':'27px';
                 }
@@ -273,13 +353,14 @@ function translate(arabic){
           }catch(e){}
         }
         pump();
-      }).catch(function(e){if(myCall===activeCall)dbg(e.message,'err')});
+      }).catch(function(e){dbg(e.message,'err');if(onDone)onDone()});
     }
     pump();
   })
-  .catch(function(e){if(myCall===activeCall)dbg(e.message,'err')});
+  .catch(function(e){dbg(e.message,'err');if(onDone)onDone()});
 }
 
+// ── Speech recognition ────────────────────────────────────────────────────
 function startRecog(){
   var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
   if(!SR){dbg('Use Chrome','err');return}
@@ -293,11 +374,12 @@ function startRecog(){
     for(var i=e.resultIndex;i<e.results.length;i++){
       var t=e.results[i][0].transcript.trim();
       if(!t) continue;
+
       if(e.results[i].isFinal){
-        // isFinal = imam paused / finished a phrase. Translate immediately.
-        translate(t);
+        // Split on Islamic phrase boundaries, translate each separately
+        var phrases=splitIntoPhrases(t);
+        enqueueAndDisplay(phrases);
       } else {
-        // Show interim live so user sees what's being heard
         heardBox.textContent=t;
         heardBox.classList.add('lit');
       }
@@ -307,11 +389,9 @@ function startRecog(){
   recog.onerror=function(e){
     if(e.error==='no-speech') return;
     if(e.error==='not-allowed'){
-      dbg('Mic blocked — allow in browser settings','err');
-      isOn=false;
-      micBtn.className='mic-btn';
-      statusEl.className='status';
-      statusEl.textContent='Tap to start';
+      dbg('Mic blocked — allow in browser','err');
+      isOn=false;micBtn.className='mic-btn';
+      statusEl.className='status';statusEl.textContent='Tap to start';
     }
   };
 
@@ -325,8 +405,8 @@ function startRecog(){
 function toggleListening(){
   if(!localStorage.getItem('prayer_key')){dbg('Enter API key first','err');return}
   if(!isOn){
-    isOn=true;
-    activeCall++;
+    isOn=true;activeCall++;
+    displayQueue=[];isDisplaying=false;
     micBtn.className='mic-btn on';
     statusEl.className='status on';
     statusEl.textContent='Listening...';
@@ -334,14 +414,13 @@ function toggleListening(){
     heardBox.className='heard-box';
     startRecog();
   } else {
-    isOn=false;
-    activeCall++;
+    isOn=false;activeCall++;
+    displayQueue=[];isDisplaying=false;
     if(recog){recog.onend=null;recog.stop();recog=null}
     micBtn.className='mic-btn';
     statusEl.className='status';
     statusEl.textContent='Tap to start';
-    heardBox.textContent='';
-    heardBox.className='heard-box';
+    heardBox.textContent='';heardBox.className='heard-box';
     dbg('');
   }
 }
