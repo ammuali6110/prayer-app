@@ -7,205 +7,58 @@
 <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
 :root {
-  --gold: #c9a96e;
-  --gold-dim: #7a6040;
-  --bg: #080c18;
-  --surface: #0f1623;
-  --border: #1a2a40;
-  --border-mid: #2a3f60;
-  --text: #e8dfc8;
-  --text-dim: #6b7a9a;
-  --text-faint: #2a3a5a;
-  --green: #2a9060;
-  --green-dim: #2a6040;
-  --red: #a04040;
+  --gold: #c9a96e; --gold-dim: #7a6040; --bg: #080c18;
+  --surface: #0f1623; --border: #1a2a40; --border-mid: #2a3f60;
+  --text: #e8dfc8; --text-dim: #6b7a9a; --green: #2a9060;
+  --green-dim: #2a6040; --red: #a04040;
 }
-
-body {
-  background: var(--bg);
-  font-family: 'Lato', sans-serif;
-  color: var(--text);
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 1.5rem 1rem 2rem;
-}
-
+body { background: var(--bg); font-family: 'Lato', sans-serif; color: var(--text); min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 1.5rem 1rem 2rem; }
 .header { text-align: center; margin-bottom: 1.25rem; }
 .arabic-title { font-family: 'Amiri', serif; font-size: 26px; color: var(--gold); display: block; }
 .divider { width: 50px; height: 1px; background: var(--gold); opacity: 0.35; margin: 0.5rem auto; }
 .english-title { font-size: 11px; color: #3a4a6a; letter-spacing: 0.18em; text-transform: uppercase; }
-
-.setup {
-  width: 100%; max-width: 520px;
-  background: var(--surface);
-  border: 1px solid var(--border-mid);
-  border-radius: 14px;
-  padding: 1.25rem;
-  margin-bottom: 1.25rem;
-}
+.setup { width: 100%; max-width: 520px; background: var(--surface); border: 1px solid var(--border-mid); border-radius: 14px; padding: 1.25rem; margin-bottom: 1.25rem; }
 .setup.hidden { display: none; }
 .setup label { font-size: 13px; color: var(--text-dim); margin-bottom: 8px; display: block; }
 .setup-row { display: flex; gap: 8px; }
-.setup input {
-  flex: 1; background: var(--bg); border: 1px solid var(--border);
-  border-radius: 8px; padding: 10px 14px; font-size: 13px;
-  color: var(--text); font-family: monospace; outline: none;
-}
+.setup input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-size: 13px; color: var(--text); font-family: monospace; outline: none; }
 .setup input:focus { border-color: var(--gold); }
-.setup button {
-  background: var(--gold); border: none; border-radius: 8px;
-  padding: 10px 18px; font-size: 13px; font-weight: 700;
-  color: var(--bg); cursor: pointer; white-space: nowrap;
-}
+.setup button { background: var(--gold); border: none; border-radius: 8px; padding: 10px 18px; font-size: 13px; font-weight: 700; color: var(--bg); cursor: pointer; }
 .setup-note { font-size: 11px; color: #3a4a6a; margin-top: 8px; line-height: 1.6; }
-
-.mode-row {
-  width: 100%; max-width: 520px;
-  display: flex; gap: 8px; margin-bottom: 1rem;
-}
-.mode-btn {
-  flex: 1; padding: 10px;
-  border-radius: 10px; border: 1px solid var(--border);
-  background: var(--surface); color: var(--text-dim);
-  font-size: 13px; font-family: 'Lato', sans-serif;
-  cursor: pointer; text-align: center; transition: all 0.2s;
-}
+.mode-row { width: 100%; max-width: 520px; display: flex; gap: 8px; margin-bottom: 1rem; }
+.mode-btn { flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--text-dim); font-size: 13px; font-family: 'Lato', sans-serif; cursor: pointer; text-align: center; transition: all 0.2s; }
 .mode-btn.active { background: #1a2a40; border-color: var(--gold); color: var(--gold); }
 .mode-title { font-weight: 700; display: block; margin-bottom: 2px; }
 .mode-desc { font-size: 11px; opacity: 0.65; }
-
-.mic-section {
-  display: flex; flex-direction: column;
-  align-items: center; gap: 10px; margin-bottom: 1rem;
-}
-.mic-btn {
-  width: 80px; height: 80px; border-radius: 50%;
-  background: #111827; border: 2px solid #2d3a5e;
-  cursor: pointer; display: flex; align-items: center;
-  justify-content: center; transition: all 0.3s; outline: none;
-}
-.mic-btn.listening {
-  border-color: var(--green-dim);
-  background: #0d1f14;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-.mic-btn.translating {
-  border-color: var(--gold-dim);
-  background: #1a140a;
-  animation: pulse-gold 1.2s ease-in-out infinite;
-}
-@keyframes pulse {
-  0%,100% { box-shadow: 0 0 0 0 rgba(42,96,64,0.5); }
-  50%      { box-shadow: 0 0 0 14px rgba(42,96,64,0); }
-}
-@keyframes pulse-gold {
-  0%,100% { box-shadow: 0 0 0 0 rgba(201,169,110,0.35); }
-  50%      { box-shadow: 0 0 0 12px rgba(201,169,110,0); }
-}
+.mic-section { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 1rem; }
+.mic-btn { width: 80px; height: 80px; border-radius: 50%; background: #111827; border: 2px solid #2d3a5e; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.3s; outline: none; }
+.mic-btn.listening { border-color: var(--green-dim); background: #0d1f14; animation: pulse 1.5s ease-in-out infinite; }
+.mic-btn.translating { border-color: var(--gold-dim); background: #1a140a; animation: pulse-gold 1.2s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(42,96,64,0.5);}50%{box-shadow:0 0 0 14px rgba(42,96,64,0);} }
+@keyframes pulse-gold { 0%,100%{box-shadow:0 0 0 0 rgba(201,169,110,0.35);}50%{box-shadow:0 0 0 12px rgba(201,169,110,0);} }
 .status { font-size: 12px; color: var(--text-dim); letter-spacing: 0.08em; text-transform: uppercase; }
-.status.listening   { color: var(--green); }
+.status.listening { color: var(--green); }
 .status.translating { color: var(--gold); }
-
-.heard-box {
-  width: 100%; max-width: 520px;
-  background: #0a0f1a; border: 1px solid #1a2540;
-  border-radius: 8px; padding: 8px 12px; margin-bottom: 0.75rem;
-  font-family: 'Amiri', serif; font-size: 16px; color: #3a4d70;
-  min-height: 38px; text-align: right; direction: rtl; line-height: 1.6;
-  transition: color 0.3s;
-}
+.heard-box { width: 100%; max-width: 520px; background: #0a0f1a; border: 1px solid #1a2540; border-radius: 8px; padding: 8px 12px; margin-bottom: 0.75rem; font-family: 'Amiri', serif; font-size: 16px; color: #3a4d70; min-height: 38px; text-align: right; direction: rtl; line-height: 1.6; transition: color 0.3s; }
 .heard-box.active { color: var(--text-dim); }
-
-.card {
-  width: 100%; max-width: 520px;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 14px; padding: 2rem 1.5rem;
-  min-height: 200px; display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  position: relative; overflow: hidden;
-}
-
-.badge-row {
-  min-height: 22px; margin-bottom: 0.75rem;
-  align-self: flex-start; display: flex;
-  gap: 8px; align-items: center;
-}
-.surah-badge {
-  background: #1a2a40; border: 1px solid #2a4060;
-  border-radius: 6px; padding: 3px 10px;
-  font-size: 12px; color: var(--gold); font-weight: 700;
-}
+.card { width: 100%; max-width: 520px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 2rem 1.5rem; min-height: 200px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+.badge-row { min-height: 22px; margin-bottom: 0.75rem; align-self: flex-start; display: flex; gap: 8px; align-items: center; }
+.surah-badge { background: #1a2a40; border: 1px solid #2a4060; border-radius: 6px; padding: 3px 10px; font-size: 12px; color: var(--gold); font-weight: 700; }
 .dua-label { font-size: 11px; color: #3a4a6a; font-style: italic; }
-
-#mainText {
-  font-size: 27px; font-weight: 300;
-  color: var(--text); line-height: 1.75;
-  text-align: center; width: 100%;
-  opacity: 1;
-  transition: opacity 0.25s ease;
-}
+#mainText { font-size: 27px; font-weight: 300; color: var(--text); line-height: 1.75; text-align: center; width: 100%; transition: opacity 0.15s ease; }
 #mainText.fading { opacity: 0; }
-
-.card-flash {
-  position: absolute; inset: 0;
-  background: var(--gold);
-  border-radius: 14px;
-  opacity: 0;
-  transition: opacity 0.15s ease;
-  pointer-events: none;
-  z-index: 0;
-}
+.card-flash { position: absolute; inset: 0; background: var(--gold); border-radius: 14px; opacity: 0; transition: opacity 0.15s ease; pointer-events: none; z-index: 0; }
 .card-flash.on { opacity: 0.12; }
 .card > :not(.card-flash) { position: relative; z-index: 1; }
-
 .placeholder { font-size: 15px; color: #2a3a5a; text-align: center; line-height: 1.9; }
-
-.queue-indicator {
-  align-self: flex-end; font-size: 11px;
-  color: #2a3a5a; letter-spacing: 0.05em;
-  margin-top: 0.5rem; min-height: 16px;
-  transition: color 0.3s;
-}
-.queue-indicator.active { color: var(--gold-dim); }
-
-.bottom-row {
-  width: 100%; max-width: 520px;
-  display: flex; justify-content: space-between;
-  align-items: center; margin-top: 0.75rem;
-}
+.bottom-row { width: 100%; max-width: 520px; display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem; }
 .left-btns { display: flex; gap: 8px; align-items: center; }
-.text-btn {
-  font-size: 11px; color: #3a4a6a; cursor: pointer;
-  background: none; border: 1px solid var(--border);
-  border-radius: 6px; padding: 4px 10px;
-  font-family: 'Lato', sans-serif; transition: color 0.2s, border-color 0.2s;
-}
-.text-btn:hover { color: var(--text-dim); border-color: #2a3a5a; }
-
-select {
-  background: var(--surface); border: 1px solid var(--border);
-  color: var(--text-dim); font-size: 12px;
-  padding: 5px 8px; border-radius: 8px;
-  font-family: 'Lato', sans-serif; cursor: pointer; outline: none;
-}
-
-.debug {
-  width: 100%; max-width: 520px;
-  margin-top: 0.5rem; font-size: 11px;
-  font-family: monospace; text-align: center;
-  min-height: 16px; color: #3a4a6a;
-}
+.text-btn { font-size: 11px; color: #3a4a6a; cursor: pointer; background: none; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-family: 'Lato', sans-serif; }
+select { background: var(--surface); border: 1px solid var(--border); color: var(--text-dim); font-size: 12px; padding: 5px 8px; border-radius: 8px; font-family: 'Lato', sans-serif; cursor: pointer; outline: none; }
+.debug { width: 100%; max-width: 520px; margin-top: 0.5rem; font-size: 11px; font-family: monospace; text-align: center; min-height: 16px; color: #3a4a6a; }
 .debug.err { color: var(--red); }
-
-.disclaimer {
-  width: 100%; max-width: 520px;
-  margin-top: 0.5rem; font-size: 11px;
-  color: #2a3a5a; text-align: center; line-height: 1.6;
-}
+.disclaimer { width: 100%; max-width: 520px; margin-top: 0.5rem; font-size: 11px; color: #2a3a5a; text-align: center; line-height: 1.6; }
 </style>
 </head>
 <body>
@@ -257,7 +110,6 @@ select {
     <span class="dua-label" id="duaLabel"></span>
   </div>
   <div id="mainText"><div class="placeholder">Tap mic and hold near the imam.</div></div>
-  <div class="queue-indicator" id="queueInd"></div>
 </div>
 
 <div class="bottom-row">
@@ -280,48 +132,34 @@ select {
 <div class="disclaimer">AI translation for understanding only. Verify with a qualified scholar.</div>
 
 <script>
-let isListening    = false;
-let recognition    = null;
-let mode           = 'ayah';
-let displayQueue   = [];
-let isDisplaying   = false;
-let pendingFinal   = '';
-let interimText    = '';
-let silenceTimer   = null;
-let finalTimer     = null;
-let lastSentText   = '';
+let isListening  = false;
+let recognition  = null;
+let mode         = 'ayah';
 
-const SILENCE_MS   = 900;
-const MIN_CHARS    = 4;
+// Speech buffers
+let accumulated  = '';   // finals collected since last fire
+let interim      = '';
+let silenceTimer = null;
+let lastFired    = '';
 
-const micBtn    = document.getElementById('micBtn');
-const statusEl  = document.getElementById('status');
-const heardBox  = document.getElementById('heardBox');
-const mainText  = document.getElementById('mainText');
-const surahBadge= document.getElementById('surahBadge');
-const duaLabel  = document.getElementById('duaLabel');
-const debugEl   = document.getElementById('debug');
-const cardFlash = document.getElementById('cardFlash');
-const queueInd  = document.getElementById('queueInd');
+const SILENCE_MS = 700;  // fire 700ms after imam stops speaking
+
+const micBtn     = document.getElementById('micBtn');
+const statusEl   = document.getElementById('status');
+const heardBox   = document.getElementById('heardBox');
+const mainText   = document.getElementById('mainText');
+const surahBadge = document.getElementById('surahBadge');
+const duaLabel   = document.getElementById('duaLabel');
+const debugEl    = document.getElementById('debug');
+const cardFlash  = document.getElementById('cardFlash');
 
 function dbg(msg, type) {
   debugEl.textContent = msg;
   debugEl.className = 'debug' + (type ? ' ' + type : '');
 }
 
-function setQueueInd() {
-  const n = displayQueue.length;
-  if (n > 0) {
-    queueInd.textContent = n + ' more phrase' + (n > 1 ? 's' : '') + ' queued';
-    queueInd.className = 'queue-indicator active';
-  } else {
-    queueInd.textContent = '';
-    queueInd.className = 'queue-indicator';
-  }
-}
-
-const saved = localStorage.getItem('prayer_key');
-if (saved) document.getElementById('setup').classList.add('hidden');
+// Key setup
+if (localStorage.getItem('prayer_key')) document.getElementById('setup').classList.add('hidden');
 
 function saveKey() {
   const v = document.getElementById('keyInput').value.trim();
@@ -330,113 +168,87 @@ function saveKey() {
   document.getElementById('setup').classList.add('hidden');
   dbg('');
 }
-
 function changeKey() {
   localStorage.removeItem('prayer_key');
   document.getElementById('keyInput').value = '';
   document.getElementById('setup').classList.remove('hidden');
   if (isListening) toggleListening();
 }
-
 function setMode(m) {
   mode = m;
   document.getElementById('modeAyah').classList.toggle('active', m === 'ayah');
   document.getElementById('modeDua').classList.toggle('active', m === 'dua');
   clearDisplay();
 }
-
 function clearDisplay() {
-  displayQueue = [];
-  isDisplaying = false;
-  mainText.className = '';
+  accumulated = ''; interim = ''; lastFired = '';
+  clearTimeout(silenceTimer);
+  mainText.style.opacity = '1';
   mainText.innerHTML = '<div class="placeholder">Tap mic and hold near the imam.</div>';
   surahBadge.style.display = 'none';
   duaLabel.textContent = '';
   heardBox.textContent = '';
   heardBox.className = 'heard-box';
-  pendingFinal = '';
-  interimText = '';
-  lastSentText = '';
-  clearTimeout(silenceTimer);
-  clearTimeout(finalTimer);
-  setQueueInd();
   dbg('');
 }
 
-function showPhrase(item) {
-  return new Promise(function(resolve) {
-    mainText.classList.add('fading');
-    setTimeout(function() {
-      mainText.classList.remove('fading');
-      mainText.textContent = item.translation;
-      mainText.style.fontSize = item.translation.length > 120 ? '21px'
-                              : item.translation.length > 70  ? '24px' : '27px';
+// Instantly replace translation on card
+function showTranslation(translation, label, surah, ayah) {
+  // flash
+  cardFlash.classList.add('on');
+  setTimeout(function() { cardFlash.classList.remove('on'); }, 300);
 
-      if (mode === 'ayah' && item.surah) {
-        surahBadge.textContent = item.surah + (item.ayah ? ' · ' + item.ayah : '');
-        surahBadge.style.display = '';
-      } else {
-        surahBadge.style.display = 'none';
-      }
-      duaLabel.textContent = item.label || '';
+  // fade out → swap → fade in
+  mainText.classList.add('fading');
+  setTimeout(function() {
+    mainText.textContent = translation;
+    mainText.style.fontSize = translation.length > 120 ? '20px' : translation.length > 70 ? '23px' : '27px';
+    mainText.classList.remove('fading');
 
-      cardFlash.classList.add('on');
-      setTimeout(function() { cardFlash.classList.remove('on'); }, 350);
-
-      const readMs = Math.min(6000, Math.max(2500, item.translation.length * 58));
-      setTimeout(resolve, readMs);
-    }, 200);
-  });
+    if (mode === 'ayah' && surah) {
+      surahBadge.textContent = surah + (ayah ? ' · ' + ayah : '');
+      surahBadge.style.display = '';
+    } else {
+      surahBadge.style.display = 'none';
+    }
+    duaLabel.textContent = label || '';
+  }, 150);
 }
 
-async function drainDisplayQueue() {
-  if (isDisplaying) return;
-  isDisplaying = true;
-  while (displayQueue.length > 0) {
-    setQueueInd();
-    const item = displayQueue.shift();
-    heardBox.textContent = item.arabic || '';
-    heardBox.classList.add('active');
-    await showPhrase(item);
-  }
-  setQueueInd();
-  isDisplaying = false;
-}
+// The system prompts — strict, no alternatives, single confident translation
+const SYSTEM = {
+  dua: `You are an expert Islamic scholar. You receive one Arabic phrase said by an imam in Witr prayer (Qunoot or dua). Translate it into one complete, natural sentence. 
 
-const DUA_SYSTEM = `You are an expert Islamic scholar and Arabic linguist specializing in prayer, Witr, Qunoot duas, and Quran. You receive Arabic phrases heard live from an imam during prayer and return their translations.
+STRICT RULES:
+- Output ONLY raw JSON: {"translation":"...","label":"..."}
+- ONE complete sentence translation. Never fragments. Never slash alternatives like "X / Y".
+- Pick the single best natural translation and commit to it.
+- label = one word: Praise, Supplication, Glorification, Salawat, or Qunoot`,
 
-RULES (follow exactly):
-1. Split the input on natural breath/meaning boundaries — each clause the imam delivers as one unit.
-2. Output ONLY a raw JSON array, no markdown, no preamble.
-3. Every "translation" must be a complete, natural sentence or phrase — never a word, never a fragment, never slash-separated alternatives. Choose ONE best translation.
-4. Use confident, single-word or single-phrase translations. Never write "X / Y" or "(X or Y)".
-5. "label" should be a short English description: "Praise", "Supplication", "Glorification", "Qunoot", "Salawat", etc.`;
+  ayah: `You are an expert Quran translator. You receive one Arabic phrase recited by an imam. Translate it into one complete, natural sentence.
 
-const AYAH_SYSTEM = `You are an expert Quran translator and Islamic scholar. You receive Arabic Quran text heard live from an imam and translate it.
+STRICT RULES:
+- Output ONLY raw JSON: {"translation":"...","surah":"...","ayah":"..."}
+- ONE complete sentence translation. Never fragments. Never slash alternatives like "X / Y".  
+- Pick the single best natural translation and commit to it.
+- surah = English name if known, else empty string. ayah = number if known, else empty string.`
+};
 
-RULES (follow exactly):
-1. Split the input on natural ayah or breath boundaries — each recitation unit as the imam delivers it.
-2. Output ONLY a raw JSON array, no markdown, no preamble.
-3. Every "translation" must be a complete, natural sentence — never a word, never a fragment, never slash-separated alternatives. Choose ONE best translation.
-4. Use confident single translations only. Never write "X / Y" or "(X or Y)".
-5. "surah" = surah name in English (if identifiable, else ""), "ayah" = ayah number (if identifiable, else "").`;
-
-async function translateArabic(arabic) {
-  if (!arabic || arabic.trim().length < MIN_CHARS) return;
+async function translate(arabic) {
   const key = localStorage.getItem('prayer_key');
-  if (!key) return;
+  if (!key || !arabic || arabic.trim().length < 3) return;
   const lang = document.getElementById('langSelect').value;
 
-  const userPrompt = mode === 'dua'
-    ? 'Translate this Arabic from Witr prayer into ' + lang + '. Split on natural breath/meaning boundaries. Return a JSON array:\n[{"arabic":"<phrase>","translation":"<complete ' + lang + ' sentence>","label":"<type>"}]\n\nArabic: "' + arabic + '"'
-    : 'Translate this Quran recitation into ' + lang + '. Split on natural ayah/breath boundaries. Return a JSON array:\n[{"arabic":"<phrase>","translation":"<complete ' + lang + ' sentence>","surah":"<name or empty>","ayah":"<number or empty>"}]\n\nArabic: "' + arabic + '"';
+  micBtn.className = 'mic-btn translating';
+  statusEl.className = 'status translating';
+  statusEl.textContent = 'Translating...';
+  dbg('Translating...');
+
+  const prompt = mode === 'dua'
+    ? 'Translate this single Arabic phrase from Witr prayer into ' + lang + '.\nReturn ONLY: {"translation":"<one complete ' + lang + ' sentence>","label":"<Praise|Supplication|Glorification|Salawat|Qunoot>"}\n\nArabic: ' + arabic
+    : 'Translate this single Quran phrase into ' + lang + '.\nReturn ONLY: {"translation":"<one complete ' + lang + ' sentence>","surah":"<English name or empty>","ayah":"<number or empty>"}\n\nArabic: ' + arabic;
 
   try {
-    micBtn.className = 'mic-btn translating';
-    statusEl.className = 'status translating';
-    statusEl.textContent = 'Translating...';
-    dbg('Translating...');
-
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -447,45 +259,28 @@ async function translateArabic(arabic) {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 800,
-        system: mode === 'dua' ? DUA_SYSTEM : AYAH_SYSTEM,
-        messages: [{ role: 'user', content: userPrompt }]
+        max_tokens: 300,
+        system: mode === 'dua' ? SYSTEM.dua : SYSTEM.ayah,
+        messages: [{ role: 'user', content: prompt }]
       })
     });
 
     if (!res.ok) {
       const e = await res.json().catch(function() { return {}; });
-      dbg('Error: ' + (e.error && e.error.message ? e.error.message : res.status), 'err');
+      dbg('API error: ' + (e.error && e.error.message ? e.error.message : res.status), 'err');
       return;
     }
 
     const data = await res.json();
-    const raw = data.content.map(function(i) { return i.text || ''; }).join('');
+    const raw = data.content.map(function(i) { return i.text || ''; }).join('').replace(/```json|```/g, '').trim();
 
-    let phrases;
-    try {
-      phrases = JSON.parse(raw.replace(/```json|```/g, '').trim());
-      if (!Array.isArray(phrases)) phrases = [phrases];
-    } catch(e) {
-      dbg('Parse error', 'err');
-      return;
+    let p;
+    try { p = JSON.parse(raw); } catch(e) { dbg('Parse error', 'err'); return; }
+
+    if (p && p.translation && p.translation.trim()) {
+      showTranslation(p.translation.trim(), p.label || '', p.surah || '', p.ayah || '');
+      dbg('');
     }
-
-    for (let i = 0; i < phrases.length; i++) {
-      const p = phrases[i];
-      if (p && p.translation && p.translation.trim().length > 2) {
-        displayQueue.push({
-          translation: p.translation.trim(),
-          arabic: p.arabic || arabic,
-          label: p.label || '',
-          surah: p.surah || '',
-          ayah: p.ayah || ''
-        });
-      }
-    }
-
-    dbg('');
-    drainDisplayQueue();
 
   } catch(e) {
     dbg('Error: ' + e.message, 'err');
@@ -498,16 +293,16 @@ async function translateArabic(arabic) {
   }
 }
 
+// Fire when silence detected — send whatever the imam just said
 function fire() {
-  const text = (pendingFinal || interimText).trim();
-  if (!text || text.length < MIN_CHARS) return;
-  if (text === lastSentText) return;
-  lastSentText = text;
-  pendingFinal = '';
-  interimText = '';
-  clearTimeout(silenceTimer);
-  clearTimeout(finalTimer);
-  translateArabic(text);
+  const text = (accumulated + ' ' + interim).trim();
+  accumulated = '';
+  interim = '';
+  if (!text || text.length < 3 || text === lastFired) return;
+  lastFired = text;
+  heardBox.textContent = text;
+  heardBox.classList.add('active');
+  translate(text);
 }
 
 function startRecognition() {
@@ -522,31 +317,30 @@ function startRecognition() {
 
   recognition.onresult = function(event) {
     for (let i = event.resultIndex; i < event.results.length; i++) {
-      const transcript = event.results[i][0].transcript.trim();
-      if (!transcript) continue;
+      const t = event.results[i][0].transcript.trim();
+      if (!t) continue;
 
       if (event.results[i].isFinal) {
-        pendingFinal += (pendingFinal ? ' ' : '') + transcript;
-        interimText = '';
-        heardBox.textContent = pendingFinal;
-        heardBox.classList.add('active');
-        clearTimeout(finalTimer);
-        clearTimeout(silenceTimer);
-        silenceTimer = setTimeout(fire, SILENCE_MS);
+        accumulated += (accumulated ? ' ' : '') + t;
+        interim = '';
       } else {
-        interimText = transcript;
-        heardBox.textContent = (pendingFinal ? pendingFinal + ' ' : '') + transcript;
-        heardBox.classList.add('active');
-        clearTimeout(silenceTimer);
-        silenceTimer = setTimeout(fire, SILENCE_MS + 200);
+        interim = t;
       }
+
+      // Show live in heard box
+      heardBox.textContent = (accumulated + ' ' + interim).trim();
+      heardBox.classList.add('active');
+
+      // Reset silence timer on every speech event
+      clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(fire, SILENCE_MS);
     }
   };
 
   recognition.onerror = function(e) {
     if (e.error === 'no-speech') return;
     if (e.error === 'not-allowed') {
-      dbg('Microphone access blocked', 'err');
+      dbg('Microphone blocked — allow mic in browser', 'err');
       isListening = false;
       micBtn.className = 'mic-btn';
       statusEl.className = 'status';
@@ -555,13 +349,10 @@ function startRecognition() {
   };
 
   recognition.onend = function() {
-    if (isListening) {
-      setTimeout(function() { try { recognition.start(); } catch(e) {} }, 150);
-    }
+    if (isListening) setTimeout(function() { try { recognition.start(); } catch(e) {} }, 100);
   };
 
-  try { recognition.start(); }
-  catch(e) { dbg('Mic error: ' + e.message, 'err'); }
+  try { recognition.start(); } catch(e) { dbg('Mic error: ' + e.message, 'err'); }
 }
 
 function toggleListening() {
@@ -569,9 +360,7 @@ function toggleListening() {
 
   if (!isListening) {
     isListening = true;
-    pendingFinal = '';
-    interimText = '';
-    lastSentText = '';
+    accumulated = ''; interim = ''; lastFired = '';
     micBtn.className = 'mic-btn listening';
     statusEl.className = 'status listening';
     statusEl.textContent = 'Listening...';
@@ -581,12 +370,7 @@ function toggleListening() {
   } else {
     isListening = false;
     clearTimeout(silenceTimer);
-    clearTimeout(finalTimer);
-    if (recognition) {
-      recognition.onend = null;
-      recognition.stop();
-      recognition = null;
-    }
+    if (recognition) { recognition.onend = null; recognition.stop(); recognition = null; }
     micBtn.className = 'mic-btn';
     statusEl.className = 'status';
     statusEl.textContent = 'Tap microphone to begin';
